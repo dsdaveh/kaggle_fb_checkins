@@ -1,0 +1,59 @@
+library(stats)
+library(ggplot2)
+library(data.table)
+library(dplyr)
+library(tidyr)
+
+read_class <- c("integer", "numeric", "numeric", "integer", "integer", "character")
+if (! exists("df_train")) df_train <- fread('../input/train.csv', colClasses = read_class)
+
+fsize = 1
+df_all <- df_train 
+if (fsize < 1) df_all <- df_all %>% sample_frac(size=fsize)
+
+hp_loc <- data.frame()  #hectare probability by location
+cutoff <- 3 # number of top probability place_id to keep
+t0 <- proc.time()
+for (i in 1:100) {
+    for (j in 1:100) {
+        hdata <- df_all %>% filter( x >= (i-1)/10, x < i/10,
+                                      y >= (j-1)/10, y < j/10) 
+        
+        n_places <- length(unique(hdata$place_id))
+        
+        hprob <- hdata %>%
+            count(place_id, sort=TRUE) %>% 
+            mutate(P = n / sum(n)) %>%
+            head(cutoff) %>% 
+            mutate(  rank = 1:cutoff) 
+        
+        top_places <- hprob %>% 
+            mutate( place_rank = paste0("place", rank)) %>%
+            dplyr::select(place_id, place_rank) %>%
+            spread(place_rank, place_id)
+        
+        top_probs <- hprob %>% 
+            mutate( prob_rank = paste0("P", rank)) %>%
+            dplyr::select(P, prob_rank) %>%
+            spread(prob_rank, P)
+        
+        hp_loc <- rbind( hp_loc,
+                         data.frame( h_x = i, h_y = j, 
+                                     P3cum = sum(hprob$P),
+                                     n_places = n_places) %>%
+                             bind_cols( top_places, top_probs) )
+
+#         hprob %>%
+#             mutate(place_id = as.factor(place_id)) %>%
+#             ggplot(aes(1:cutoff, P)) + geom_line() + 
+#             geom_text(aes(label=place_id), angle=45, vjust="inward",hjust="inward") +
+#             ggtitle(sprintf( 'Probabilty of place_id based on location for hectare(%d,%d)', i, j)) 
+    
+    }
+    t1 <- proc.time()
+    print(sprintf("%d hectares processed. Last %d took %f secs", nrow(hp_loc), j, (t1-t0)[3]))
+    t0 <- t1
+}
+
+dname <- sprintf("../data/hectare_prob_loc_%dpct.RData", round(fsize * 100))
+save(hp_loc, file=dname)
