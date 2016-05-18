@@ -5,6 +5,7 @@ library(tidyr)
 read_class <- c("integer", "numeric", "numeric", "integer", "integer", "character")
 if (! exists("df_train")) df_train <- fread('../input/train.csv', colClasses = read_class)
 
+set.seed(19)
 nFolds <- 5
 
 df_train.orig <- df_train
