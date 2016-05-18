@@ -19,3 +19,4 @@ t1 <- proc.time(); (t1-t0)[3]
 
 submit_name <- sprintf("../submissions/pred_by_location_%s.csv", format(Sys.time(), "%Y_%m_%d_%H%M%S"))
 write.csv(preds, file=submit_name, row.names=FALSE)
+
