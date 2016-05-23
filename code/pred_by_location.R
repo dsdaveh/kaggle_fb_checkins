@@ -6,11 +6,6 @@ stopifnot( exists("hp_loc"))
 
 if (! exists("df_test")) df_test <- fread('../input/test.csv')
 
-hectare_coord <- function(x) {
-    h <- floor(x*10) + 1
-    ifelse(h > 100, 100, h)
-}
-
 t0 <- proc.time()
 preds <- pred_by_hectare(hp_loc, df_test)
 t1 <- proc.time(); (t1-t0)[3]

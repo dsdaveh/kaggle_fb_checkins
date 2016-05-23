@@ -10,7 +10,8 @@ nFolds <- 5
 
 df_train.orig <- df_train
 n_ix <- nrow(df_train)
-ixfold <- data.frame( ix = sample(1:n_ix), kfold = rep(1:5, n_ix)[1:n_ix])
+ixfold <- data.frame( ix = sample(1:n_ix), kfold = rep(1:5, n_ix)[1:n_ix]) %>% tbl_df
+save(ixfold, file = sprintf("../data/hectare_prob_loc_%dfold_indices.RData", nFolds))
 for (k in 1:nFolds) {
     df_train <- df_train.orig[ ixfold[ ixfold$kfold == k, 1], ]
     dname <- sprintf("../data/hectare_prob_loc_k%d-%d.RData", k, nFolds)

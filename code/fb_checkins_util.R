@@ -1,3 +1,9 @@
+
+hectare_coord <- function(x) {
+    h <- floor(x*10) + 1
+    ifelse(h > 100, 100, h)
+}
+
 # predict place_id's based on location (hectare)
 # hp = data frame with top3 place id's for each hectare 
 # loc = input data to predict

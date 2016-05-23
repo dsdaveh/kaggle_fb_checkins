@@ -1,5 +1,11 @@
 library(dplyr)
 library(tidyr)
+library(data.table)
+library(stringr)
+if (! grepl('\\/code$', getwd())) setwd('code')
+stopifnot (grepl('\\/code$', getwd()))
+
+source('fb_checkins_util.R')
 
 combine_hp <- function(hp1, hp2) {
     hp2 <- hp2 %>% mutate( count4 = round(P1 * n_places),
@@ -55,16 +61,45 @@ combine_hp <- function(hp1, hp2) {
     return(hp_comb %>% ungroup() %>% select( -loc_key ))
 }
 
+read_class <- c("integer", "numeric", "numeric", "integer", "integer", "character")
+if (! exists("df_train")) df_train <- fread('../input/train.csv', colClasses = read_class)
 
+load(file='../data/hectare_prob_loc_5fold_indices.RData')
+k_v <- 5
+df_validate <-  df_train[ ixfold[ ixfold$kfold == k_v, ]$ix, ]
 
 load(file='../data/hectare_prob_loc_k1-5.RData')
+preds <- pred_by_hectare(hp_loc, df_validate) %>% 
+    rename( predictions = place_id) 
+preds$truth <- df_validate$place_id
+
+#could get this to go with Xapply
+score <- numeric()
+for (i in 1:nrow(preds)) {
+    score <- c(score, apk(3, preds$truth[i], unlist(str_split(preds$predictions[i], " ")) ))
+    if(i %% 10000 == 0) cat('.')
+    if(i %% 500000 == 0) cat(paste(i,"\n"))
+}
+preds$score <- score
+
+calc_ap <- function(x) {
+    print(class(x))
+    print(x)
+    apk(3, x$truth, unlist(str_split(x$predictions, " ")))
+}
+
+lapply(xx, )
+
+preds$truth <- df_validate$
+
+score <- 
+
 hp_trn <- hp_loc
 load(file='../data/hectare_prob_loc_k2-5.RData')
 hp_trn <- hp_trn %>% combine_hp( hp_loc )
 #us gen_probability_by_location.R to create hp_loc (or load from disk)
 stopifnot( exists("hp_loc"))
 
-if (! exists("df_test")) df_train <- fread('../input/test.csv')
 
 hectare_coord <- function(x) {
     h <- floor(x*10) + 1
