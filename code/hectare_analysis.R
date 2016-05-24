@@ -11,9 +11,9 @@ if (! exists("df_train")) df_train <- fread('../input/train.csv', colClasses = r
 
 load("../data/hectare_prob_loc_5fold_indices.RData")
 
-nhect <- 5
+nhect <- 10
 
-set.seed(8)
+set.seed(27)
 h_sample <- sample(1:100, nhect * 2, replace=TRUE) %>% matrix(nrow=nhect, ncol=2) %>% as.data.frame()
 names(h_sample) <- c('x', 'y')
 
@@ -27,21 +27,23 @@ trn <- val <- df_train[ ixfold[ ixfold$kfold != k_val, ]$ix, ]
 
 t0 <- proc.time()
 h_score <- data.frame()
+hp_loc <- data.frame()
 for( i in 1:nhect) {
-    hp_loc <- hp_summarize( trn, h_sample[i,1], h_sample[i,2])
+    locij <- hp_summarize( trn, h_sample[i,1], h_sample[i,2])
+    hp_loc <- rbind(hp_loc, locij)
     xmin <- (h_sample[i,1] - 1) / 10.
     ymin <- (h_sample[i,2] - 1) / 10.
     val <- df_train[ ixfold[ ixfold$kfold == k_val, ]$ix, ] %>%
         filter( x >= xmin, x <= xmin + 0.1,
                 y >= ymin, y <= ymin + 0.1) 
-    preds <- pred_by_hectare(hp_loc, val) %>%
+    preds <- pred_by_hectare(locij, val) %>%
         rename(predictions = place_id)
     preds$truth <- val$place_id
     
     hij <- data.frame(
         h_x = h_sample[i,1], h_y = h_sample[i,2], 
         score = estimate_map_score(preds, size=nrow(preds), n=1)$MAP) 
-    print(hij) #dev
+    if (i %% 100 == 0) cat(paste( i, '\n'))
     h_score <- rbind(h_score, hij )
     
 }
