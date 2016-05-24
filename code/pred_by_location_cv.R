@@ -68,51 +68,53 @@ load(file='../data/hectare_prob_loc_5fold_indices.RData')
 k_v <- 5
 df_validate <-  df_train[ ixfold[ ixfold$kfold == k_v, ]$ix, ]
 
-load(file='../data/hectare_prob_loc_k1-5.RData')
-preds <- pred_by_hectare(hp_loc, df_validate) %>% 
-    rename( predictions = place_id) 
-preds$truth <- df_validate$place_id
-
-#could get this to go with Xapply
-score <- numeric()
-for (i in 1:nrow(preds)) {
-    score <- c(score, apk(3, preds$truth[i], unlist(str_split(preds$predictions[i], " ")) ))
-    if(i %% 10000 == 0) cat('.')
-    if(i %% 500000 == 0) cat(paste(i,"\n"))
-}
-preds$score <- score
-
-calc_ap <- function(x) {
-    print(class(x))
-    print(x)
-    apk(3, x$truth, unlist(str_split(x$predictions, " ")))
+score_est <- data.frame()
+for (i in 1:4) {
+    data_file <- sprintf('../data/hectare_prob_loc_k%d-5.RData', i)
+    print(data_file)
+    load(file = data_file)
+    if (i == 1) {
+        hp_trn <- hp_loc
+    } else {
+        hp_trn <- hp_trn %>% combine_hp( hp_loc )
+    }
+    preds <- pred_by_hectare(hp_trn, df_validate) %>% 
+        rename( predictions = place_id) 
+    preds$truth <- df_validate$place_id
+    score_est <- rbind(score_est, estimate_map_score(preds, seed=19))
+    print(score_est)
 }
 
-lapply(xx, )
+plot(score_est$MAP)
+score_est_bigger_training <- score_est
+score_est_bigger_training
+# MAP          sd
+# 1 0.2692533 0.004420900
+# 2 0.2698994 0.004401605
+# 3 0.2703161 0.004479075
+# 4 0.2714778 0.004136214
 
-preds$truth <- df_validate$
+## conclusion, MAP trends up with more data (underlying hp_loc), but only about .0001 per 20% of df_train.
 
-score <- 
+# Next question what if we use the different folds for the estimation (holding the training data constant)
+load(file = '../data/hectare_prob_loc_k5-5.RData')
 
-hp_trn <- hp_loc
-load(file='../data/hectare_prob_loc_k2-5.RData')
-hp_trn <- hp_trn %>% combine_hp( hp_loc )
-#us gen_probability_by_location.R to create hp_loc (or load from disk)
-stopifnot( exists("hp_loc"))
-
-
-hectare_coord <- function(x) {
-    h <- floor(x*10) + 1
-    ifelse(h > 100, 100, h)
+score_est <- data.frame()
+for(i in 1:4) {
+    data_file <- sprintf('../data/hectare_prob_loc_k%d-5.RData', i)
+    
+    df_validate <-  df_train[ ixfold[ ixfold$kfold == i, ]$ix, ]
+    preds <- pred_by_hectare(hp_loc, df_validate) %>% 
+        rename( predictions = place_id) 
+    preds$truth <- df_validate$place_id
+    score_est <- rbind(score_est, estimate_map_score(preds, seed=19))
+    print(score_est)
 }
-t0 <- proc.time()
-preds <- df_test %>% tbl_df %>%
-    mutate( hectare = sprintf("%d,%d", hectare_coord(x), hectare_coord(y)) ) %>%
-    left_join( hp_loc %>% mutate( hectare = paste0(h_x, ',', h_y), by=hectare)) %>%
-    mutate( place_id = paste(place1, place2, place3)) %>%
-    dplyr::select(row_id, place_id)
-t1 <- proc.time(); (t1-t0)[3]
 
-submit_name <- sprintf("../submissions/pred_by_location_%s.csv", format(Sys.time(), "%Y_%m_%d_%H%M%S"))
-write.csv(preds, file=submit_name, row.names=FALSE)
-
+score_est_variance <- score_est
+score_est_variance
+# MAP          sd
+# 1 0.2688639 0.003692783
+# 2 0.2698606 0.003102349
+# 3 0.2694600 0.003891152
+# 4 0.2684883 0.004043154

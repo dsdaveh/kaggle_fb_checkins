@@ -1,3 +1,32 @@
+library(stringr)
+library(dplyr)
+library(tidyr)
+
+estimate_map_score <- function(preds, size=10000, n=30, seed=48) {
+    # preds data.frame:
+    # predictions = place_id from submissions file
+    # truth = correct place_id
+    #     predictions      truth
+    #     "7866975553 1022620911 6137188517" "7866975553"
+    #     "8459113546 9477141147 9353383717" "8459113546"
+    #     ...
+    
+    # #could not get this to go with Xapply  -- takes too long to do full df
+ 
+    #sample scores
+    set.seed(seed)
+    map_scores <- numeric()
+    for (j in 1:n) {
+        fsize <- size / nrow(preds)
+        samp <- sample_frac(preds, size = fsize )
+        apk_scores <- numeric()
+        for (i in 1:nrow(samp)) apk_scores <- c(apk_scores, 
+                                                apk(3, samp$truth[i], unlist(str_split(samp$predictions[i], " ")) ))
+        map_scores <- c(map_scores, mean(apk_scores))
+    }
+    return( data.frame( MAP=mean(map_scores), sd=sd(map_scores)) )
+}
+
 
 hectare_coord <- function(x) {
     h <- floor(x*10) + 1
@@ -11,7 +40,7 @@ hectare_coord <- function(x) {
 pred_by_hectare <- function(hp, loc) {
     loc %>% tbl_df %>%
         mutate( hectare = sprintf("%d,%d", hectare_coord(x), hectare_coord(y)) ) %>%
-        left_join( hp %>% mutate( hectare = paste0(h_x, ',', h_y), by=hectare)) %>%
+        left_join( hp %>% mutate( hectare = paste0(h_x, ',', h_y), by="hectare")) %>%
         mutate( place_id = paste(place1, place2, place3)) %>%
         dplyr::select(row_id, place_id)
 }
