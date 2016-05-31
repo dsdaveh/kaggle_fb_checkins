@@ -2,7 +2,93 @@ library(stringr)
 library(dplyr)
 library(tidyr)
 
-estimate_map_score <- function(preds, size=10000, n=30, seed=48) {
+hp_summarize <- function(trn, i, j, min_time=0) {
+    # i,j = hectare id from 1-100 in x and y, respectively
+    stopifnot( i > 0 & i <= 100 & j > 0 & j <= 100)
+    
+    hdata <- trn %>% filter( time >= min_time,
+                             x >= (i-1)/10, x <= i/10,
+                             y >= (j-1)/10, y <= j/10) 
+    
+    n_places <- length(unique(hdata$place_id))
+    ncut <- min(3, n_places)
+    
+    hprob <- hdata %>%
+        count(place_id, sort=TRUE) %>% 
+        mutate(P = n / sum(n)) %>%
+        head(ncut) %>% 
+        mutate(  rank = 1:ncut) 
+    
+    if(ncut < 3 )  hprob <- hprob %>% bind_rows( hprob[1,] %>% mutate( rank = 3))
+    if(ncut < 2 )  hprob <- hprob %>% bind_rows( hprob[1,] %>% mutate( rank = 2)) %>%
+        mutate(P = n / sum(n))
+    
+    top_places <- hprob %>% 
+        mutate( place_rank = paste0("place", rank)) %>%
+        dplyr::select(place_id, place_rank) %>%
+        tidyr::spread(place_rank, place_id)
+    
+    top_probs <- hprob %>% 
+        mutate( prob_rank = paste0("P", rank)) %>%
+        dplyr::select(P, prob_rank) %>%
+        tidyr::spread(prob_rank, P)
+    
+    data.frame( h_x = i, h_y = j, P3cum = sum(hprob$P), n_places = n_places) %>%
+        bind_cols( top_places, top_probs) 
+}
+
+calculate_map_score <- function(preds, check_dups=FALSE) {
+    # preds data.frame:
+    # predictions = place_id from submissions file
+    # truth = correct place_id
+    #     predictions      truth
+    #     "7866975553 1022620911 6137188517" "7866975553"
+    #     "8459113546 9477141147 9353383717" "8459113546"
+    #     ...
+    
+    predictions.list <- str_split(preds$predictions, " ")
+    not3 <- which(lapply(predictions.list, length) != 3)
+    if(length(not3) > 0) {
+        predictions.list <- predictions.list[-not3]
+        preds <- preds[-not3]
+    }
+    preds.3 <- predictions.list %>% unlist() %>% matrix(ncol=3, byrow=TRUE) %>% 
+        as.data.frame(stringsAsFactors=FALSE) %>% tbl_df()
+    
+    if(check_dups) {
+        preds.3$V2[(preds.3$V2 == preds.3$V1)] <- "dup"
+        preds.3$V3[(preds.3$V3 == preds.3$V1)] <- "dup"
+        preds.3$V3[(preds.3$V3 == preds.3$V2)] <- "dup"
+    }
+    
+    score <- (
+        sum(preds.3$V1 == preds$truth) +
+        sum(preds.3$V2 == preds$truth) / 2 +
+        sum(preds.3$V3 == preds$truth) / 3
+    ) / nrow(preds.3)
+    return(score)
+}
+
+estimate_map_score <- function(preds, frac=0.2, n=5, seed=48) {
+    # preds data.frame:
+    # predictions = place_id from submissions file
+    # truth = correct place_id
+    #     predictions      truth
+    #     "7866975553 1022620911 6137188517" "7866975553"
+    #     "8459113546 9477141147 9353383717" "8459113546"
+    #     ...
+    # frac = sample_frac/size
+    # n = number of iterations
+    
+    scores <- numeric(n)
+    for (i in 1:n) {
+        scores[i] <- calculate_map_score( sample_frac(preds, frac) )
+    }
+    return( data.frame( MAP=mean(scores), sd=sd(scores)) )
+}
+    
+estimate_map_score_dep <- function(preds, size=10000, n=30, seed=48) {
+    # DEPRECATED: use calculate_map_score instead
     # preds data.frame:
     # predictions = place_id from submissions file
     # truth = correct place_id
@@ -19,9 +105,10 @@ estimate_map_score <- function(preds, size=10000, n=30, seed=48) {
     for (j in 1:n) {
         fsize <- size / nrow(preds)
         samp <- sample_frac(preds, size = fsize )
-        apk_scores <- numeric()
-        for (i in 1:nrow(samp)) apk_scores <- c(apk_scores, 
-                                                apk(3, samp$truth[i], unlist(str_split(samp$predictions[i], " ")) ))
+        apk_scores <- numeric(nrow(samp))
+        for (i in 1:nrow(samp)) {
+            apk_scores[i] <- apk(3, samp$truth[i], unlist(str_split(samp$predictions[i], " ")) )
+        }
         map_scores <- c(map_scores, mean(apk_scores))
     }
     return( data.frame( MAP=mean(map_scores), sd=sd(map_scores)) )

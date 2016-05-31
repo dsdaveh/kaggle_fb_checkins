@@ -1,10 +1,9 @@
-library(bit64)
 library(stats)
 library(ggplot2)
 library(data.table)
 library(dplyr)
 
-df_train <- fread('../input/train.csv')
+df_train <- fread('../input/train.csv', integer64 = 'character')
 df_test <- fread('../input/test.csv')
 set.seed(19)
 trn1 <- sample_frac(df_train, size=.01)
@@ -19,7 +18,7 @@ d01 <- rbind(trn1, tst1)
 d01 %>% ggplot(aes(x=accuracy, group=src, col=src, fill=src)) +
     geom_density(alpha=0.3)
     
-    
+
 d01 %>% 
     mutate( x = round(x * 10), y = round(y * 10)) %>%
     group_by( x, y) %>%
@@ -125,3 +124,18 @@ cell_p %>%
     geom_text(aes(label=place_id), angle=45, vjust="inward",hjust="inward") +
     ggtitle('Probabilty of place_id based on location') 
     
+##----- starting over with trn1
+
+## Q: what is the penalty for ignoring places of frequency n
+trn1 %>% count(place_id, sort=TRUE) %>%
+    rename(count=n) %>% count(count) %>%
+    mutate( max_p = cumsum(n * count) / sum(n * count)) %>%
+    ggplot( aes(x=count, y=max_p )) + geom_line()
+plot(-diff(rev(xx$max_p)), type='p')
+
+# A: Okay, I've basically reproduced the distribution (duh) but the answer is that omitting
+# places with only 1 count means the best possible score (for the trainging set) is .9127 
+# i.e a penalty of 0.087 
+# 2 count => max score .786 (additional penalty of 0.126)
+# 3 count => max score .6678 (added penalty of 0.118)
+# for reference leaderboard #1 is .601

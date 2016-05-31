@@ -1,0 +1,307 @@
+---
+title: "EDA"
+author: "Michael Griffiths"
+date: "May 11, 2016"
+output: 
+  html_document: 
+    fig_height: 10
+    fig_width: 16
+    highlight: pygments
+    toc: yes
+---
+
+# Background
+
+Facebook has simulated a dataset, consisting of:
+
+> ...an artificial world consisting of more than 100,000 places located in a 10 km by 10 km square.
+
+For a given set of co-ordinates, the prediction task is to return a _ranked list_ of most likely "places."
+
+# Analysis
+
+To begin with, let's load some libaries at aid and abet the analysis.
+
+```{r Load_Libraries, warning=F}
+library(needs)
+needs(dplyr, tidyr, stringr, lubridate, readr, ggplot2,
+      MASS,
+      pander, formattable, viridis)
+```
+
+## Data 
+
+We receive three files from Facebook - 
+
+```{r}
+list.files("../input") %>%
+    as.list %>%
+    pander
+```
+
+Each file contains a single CSV file. In the case of `train.csv` and `test.csv`, we can _guess_ that the schema is the same, except for a "correct" answer in `train.csv`.
+
+I put "correct" in quotes, because Facebook says that:
+
+> Data was fabricated to resemble location signals coming from mobile devices, giving you a flavor of what it takes to work with real data complicated by inaccurate and noisy values. Inconsistent and erroneous location data can disrupt experience for services like Facebook Check In.
+
+It's very possible that errors have been deliberately inserted into the `train.csv` dataset.
+
+Well, let's begin. We'll use `readr::read_csv`, which will automatically unpack the (single) file. This is equivalent to something like `base::read.csv(unz("../data/train.csv.zip", "train.csv"))`, but is a little cleaner. Plus, `readr::read_csv` is faster than base `read.csv`.
+
+```{r Load_Data, cache=TRUE}
+library(knitr)
+opts_chunk$set(cache.path = '../data/eda_Griffiths_cache/')
+
+# train <- read_csv("../input/train.csv.zip")
+train <- read_csv("../input/train.csv")
+glimpse(train)
+```
+
+OK: so we have ~29 million records. 
+
+A few notes:
+
+  * `row_id` seems to be ... a row ID. It is `r length(unique(train$row_id)) == nrow(train)` that the number of unique `row_id`s is the same as the number of rows in the data frame.
+  * `x` is presumably bounded between [0, 10] as the x-axis on the 10-km square.
+  * `y` looks to be the same as `x`, just the other dimension.
+  * `accuracy` is intersting: it's all over the place. The smallest value is `r comma(min(train$accuracy))`; the biggest value is `r comma(max(train$accuracy))`. We'll have to look into that.
+  * `time` has no units. Since Facebook notes that time an accuracy are `"intentionally left vague in their definitions."`, we will have to look into that.
+  * `place_id` is probably a unique identifier. There `r length(unique(train$place_id))` unique values.
+  
+Let's start by examining the "vague" variables.
+
+### Accuracy
+
+We already know that accuracy isn't exactly defined. From first principles, we could think of it a few ways - 
+
+  * Error on some arbitary scale. This seems unlikely, since the max is > 1,000.
+  * Error on the same scale as `x` and `y`. Now, this could be an estimated radius (with the `x` and `y` values as the center); either normal or squared.
+
+Since we have _a lot_ of data, and we're running this in Kaggle scripts, we can randomly sample 1% of the data and look at the data. The pattern will (almost certainly) be the same.
+
+```{r}
+train %>%
+    sample_frac(.01) %>%
+    ggplot(aes(x = accuracy)) +
+    geom_density()
+```
+
+It looks like we have three peaks. Do we think there are underlying parameters in the simulation at these peaks?
+
+We might also think that there are different measures of `accuracy` at different locations. 
+
+Let's see how even the accuracy is over `x` and `y`.
+
+Since we have two dimensions and quite a few buckets (50 x 50 = 2,500 bins).
+
+```{r}
+train %>%
+    sample_frac(0.01) %>%
+    ggplot(aes(x, y, z = accuracy)) +
+    stat_summary_2d(fun = mean, bins = 50) +
+    scale_fill_viridis()
+```
+
+Now, that looks pretty random to me. Doesn't look like there are either (large) hotspots, or a tendency across the whole square.
+
+We can look at it a few other ways (median, max, min, sd, var, etc), but I don't think they add a great deal.
+
+Even if the _general_ distribution is pretty even, are the high-accuracy values (which we think mean _low_ accuracy) anywhere in particular? 
+
+```{r}
+train %>%
+    filter(accuracy > 200) %>%
+    # Since we're dealing with the subset that's over 200,
+    # let's take a bigger sample.
+    sample_frac(0.05) %>%
+    ggplot(aes(x, y)) +
+    geom_bin2d(bins = 50) +
+    scale_fill_viridis() +
+    lims(x = c(0, 10), y = c(0, 10))
+```
+
+I guess the short answer is "not really". If there's any signal in there, it's not poppin' to eyes.
+
+### Time
+
+Now let's think about time!
+
+We'll take the same approach as above. First, let's plot the density of the time values.
+
+```{r}
+train %>%
+    sample_frac(.01) %>%
+    ggplot(aes(x = time)) +
+    geom_density()
+```
+
+That's interesting: there are two _very big_ drops. 
+
+What's also interesting is how evenly dispersed the time is - if this were, say, _daily_ data we'd expect much more of a seasonal pattern.
+
+Do we think `time` interacts with either `x` or `y`?
+
+```{r}
+train %>%
+    sample_frac(.01) %>%
+    ggplot(aes(x = x, y = time)) + 
+    geom_bin2d(bins = 50)
+```
+
+The short answer is "no". We see the time bands that have lower density, but apart from that everything in X seems pretty similar. OK, so relatively even dispersal so far.
+
+We can run the chart as well for `y`, but it's basically the same.
+
+### Place ID
+
+Now that we have some background on `time`, `accuracy` and (sideways) on `x` and `y` let's look at `place_id`.
+
+First, a quick check. Sometimes ID values aren't really uniformly distributed.
+
+```{r}
+train %>%
+    sample_frac(0.01) %>%
+    ggplot(aes(x = place_id)) +
+    geom_density()
+```
+
+OK, so `place_id` is (essentially) uniformly distributed. That's good news - no obvious leakage.
+
+Let's also check the correlation between `place_id` and both `x` and `y` to make sure the ID doesn't encode information about the location. It probably doesn't; but worth checking.
+
+```{r}
+print(sprintf("Correlation of place_id and x: %s", cor(train$place_id, train$x)))
+print(sprintf("Correlation of place_id and y: %s", cor(train$place_id, train$y)))
+```
+
+OK, so _probably not_ related. That's good news as well. 
+
+First question: what's the distribution of `place_id`?
+
+```{r}
+place_ids <-
+    train %>%
+    sample_frac(0.05) %>%
+    group_by(place_id) %>%
+    summarise(freq = n())
+
+place_ids %>%
+    ggplot(aes(x = freq)) +
+    geom_density()
+```
+
+Well, if that doesn't look like a Poisson distribution!
+
+Let's fit and compare.
+
+```{r}
+fitted_distr <- fitdistr(place_ids$freq, "Poisson")
+print(sprintf("Log Liklihood: %s", fitted_distr$loglik))
+
+pois_samples <- rpois(nrow(place_ids), fitted_distr$estimate[[1]])
+
+place_ids %>%
+    mutate(simulated = pois_samples) %>%
+    ggplot(aes(x = freq)) +
+    geom_density() +
+    geom_density(aes(x = simulated), colour = "red") 
+```
+
+Well, obviously, it's not. Probably something bounded below by zero with a much fatter tail. 
+
+Perhaps a Cauchy distribution?
+
+```{r warning=F}
+fitted_distr <- fitdistr(place_ids$freq, "cauchy")
+print(sprintf("Log Liklihood: %s", fitted_distr$loglik))
+
+cauchy_samples <- rcauchy(nrow(place_ids), fitted_distr$estimate[[1]], fitted_distr$estimate[[2]])
+
+place_ids %>%
+    mutate(simulated = cauchy_samples) %>%
+    ggplot(aes(x = freq)) +
+    geom_density() +
+    geom_density(aes(x = simulated), colour = "red") +
+    xlim(0, 100)
+```
+
+Well, it's *better*. 
+
+We could play around with this for a while; the principle point is that this looks like a pretty clean distribution for frequency, which is nice. Humps - or something else suggesting another type of mixture - would be _far_ harder to work with.
+
+How variable are the estimates for the popular places?
+
+Let's take a handful (10 places) that have a frequency of more than 10 (in our sample) and find the `x` and `y` parameters for each.
+
+```{r}
+place_ids %>%
+    filter(freq > 10) %>%
+    top_n(n = 10, wt = freq) %>%
+    inner_join(train %>% sample_frac(0.05)) ->
+    places
+
+# Now we can plot them - 
+places %>%
+    ggplot(aes(x, y, colour = as.factor(place_id))) +
+    geom_point() +
+    lims(x = c(0, 10), y = c(0, 10))
+
+```
+
+Well now, _that_ is interesting. It looks like we have *way* more horizontal (`x`) variation than we have vertical (`y`) variation.
+
+What on earth is going on?
+
+And how does accuracy play into this?
+
+Let's try again.
+
+```{r}
+places %>%
+    ggplot(aes(x, y, colour = as.factor(place_id))) +
+    geom_point(aes(size = 1 / accuracy), alpha = 0.6) +
+    lims(x = c(0, 10), y = c(0, 10))
+```
+
+I don't know - that's interesting. While in general it seems like the places with the _smalles_ accuracy scores are in the middle, there are some pretty odd patterns here. 
+
+DAH - DenysBondar suggested plotting accuracy rather than inverse accuracy produced better results, so I've added it below
+
+```{r}
+places %>%
+    ggplot(aes(x, y, colour = as.factor(place_id))) +
+    geom_point(aes(size = accuracy), alpha = 0.6) +
+    lims(x = c(0, 10), y = c(0, 10))
+```
+
+
+
+The whole "much more variation in `x` than `y`" is killing me. Let's see a table.
+
+```{r}
+places %>% 
+    group_by(place_id) %>% 
+    summarise(mean_x = mean(x), sd_x = sd(x), mean_y = mean(y), sd_y = sd(y)) %>%
+    arrange(desc(sd_x)) %>%
+    mutate_each(funs(comma), ends_with("x"), ends_with("y")) %>% 
+    formattable(
+        list(sd_x = color_bar("orange", min = 0, max = 1),
+             sd_y = color_bar("pink", min = 0, max = 1)), 
+        align = 'l'
+    )
+```
+
+Wow. That's such a weird pattern. And note that the biggest `y` value is 0.04 - the same as the *smallest* `x` value. Crazy.
+
+# Conclusion
+
+There's some interesting stuff going on here. I'm going to guess that the simulation has some toggles that were set to selected values, and part of the plan will be to reverse-engineer those toggles (where appropriate).
+
+I haven't begin the modeling assignment. Before that, we may also want to look at:
+
+  * *Overlap*: How many `place_id` overlap with others? How much? Does it depend on popularity? 
+  * Do things overlap more in the `x` or `y` direction?
+  * Does the bias of the error depend on popularity? 
+  * How accuracy play into the variability we see in the dataset?
+  * Given that the error is MAP@3 (Mean Average Precision Error) with three values to provide, what can we do to take advantage of that?
