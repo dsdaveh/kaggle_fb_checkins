@@ -5,7 +5,7 @@ library(data.table)
 library(ggplot2)
 
 source('fb_checkins_util.R')
-source('hour_rating_Chistyakov_fork3.R')
+source('hour_rating_Chistyakov_func.R')
 
 #################
 # local validation
