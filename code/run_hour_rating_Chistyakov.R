@@ -12,7 +12,7 @@ source('hour_rating_Chistyakov_fork3.R')
 # method 1: split based on time
 train <-df_train
 set.seed(19)
-frac <- 0.05
+frac <- 1 #0.05
 if (frac < 1) train <- sample_frac(train, frac)
 
 method <- 1 # 1=time based split 2=random split
@@ -34,12 +34,12 @@ rat_xy <- 290/725
 rat_12 <- 290/145
 
 setup_params <- function( params, deltas) {
-    grid <- matrix( params, ncol = length(params), byrow=TRUE )
+    grid <- matrix( c(params, 0, 1), ncol = length(params) + 2, byrow=TRUE )
     for( i in 1:length(params)) {
         for ( j in 1:length(deltas)) {
-            dparam <- params
+            dparam <- c(params, i, deltas[j])
             dparam[i] <- params[i] * deltas[j]
-            grid <- rbind( grid, matrix(dparam, ncol = length(params), byrow=TRUE))
+            grid <- rbind( grid, matrix(dparam, ncol = length(params) + 2, byrow=TRUE))
         }
     }
     return(grid)
@@ -69,19 +69,22 @@ for (i in 1:nrow(param_grid)) {
     t3 = proc.time()
     print((t3-t2)[3])
 }
-print((t3-t1)[3])  # 5839 secs
+print((t3-t1)[3])  # 5839 secs @ 5%
 
 param_labels <- c("new_dim_x", "rat_xy", "rat_12")
-grid_results <- cbind(param_grid, scores) %>% as.data.frame() %>%
-    bind_cols( data.frame( param = c("baseline", rep(param_labels, each=length(deltas)))) )
+grid_results <- cbind(param_grid, scores) %>% as.data.frame() 
 baseline <- grid_results[1, ]
 grid_results <- grid_results[-1, ]
 baseline <- rbind(baseline, baseline, baseline)
-baseline$param <- param_labels
+baseline[ ,length(param_labels)+1] <- 1:length(param_labels)
 grid_results <- rbind(grid_results, baseline)
-grid_results$iter <- c( rep( c(1,2,4,5), 3), rep(3,3))
+names(grid_results) <- c(param_labels, 'param', 'delta', 'scores')
+grid_results$param <- as.factor(grid_results$param)
+levels(grid_results$param) <- param_labels
 
-grid_results %>% ggplot( aes(x=iter, y=scores, group-param, col=param)) + geom_line()
+grid_results %>% ggplot( aes(x=delta, y=scores, group=param, col=param)) +
+    geom_line( size=2 ) +
+    ggtitle('parameter sensitivities')
 
 p1max <- grid_results %>% filter(param == param_labels[1]) %>% arrange(desc(scores)) %>% .[[1]] %>% first()
 p2max <- grid_results %>% filter(param == param_labels[2]) %>% arrange(desc(scores)) %>% .[[2]] %>% first()
@@ -105,19 +108,18 @@ grid_results <- grid_results %>% bind_rows( data.frame(
     param = "opt",
     iter = 0))
 
-
 submit_name <- sprintf("../submissions/hr_Chistyakov_opt_%s.csv", format(Sys.time(), "%Y_%m_%d_%H%M%S"))
 if (! exists("WRITE_SUBMISSION") ) WRITE_SUBMISSION = TRUE
 
 #load(file=df_train)
 #train <- fread("../input/train.csv", integer64 = "character")
-train <- df_train
-test <- fread("../input/test.csv", integer64 = "character")
- 
-t4 = proc.time()
-result <- pred_by_hour_rating(train, test, new_dim_x1=p1max, rat_xy=p2max, rat_12=p3max) 
-t5 = proc.time()
-print((t5-t4)[3])
-if (exists ("WRITE_SUBMISSION")) if (WRITE_SUBMISSION) write.csv(result, file=submit_name, row.names=FALSE)
-
+# train <- df_train
+# test <- fread("../input/test.csv", integer64 = "character")
+#  
+# t4 = proc.time()
+# result <- pred_by_hour_rating(train, test, new_dim_x1=p1max, rat_xy=p2max, rat_12=p3max) 
+# t5 = proc.time()
+# print((t5-t4)[3])
+# if (exists ("WRITE_SUBMISSION")) if (WRITE_SUBMISSION) write.csv(result, file=submit_name, row.names=FALSE)
+# 
 

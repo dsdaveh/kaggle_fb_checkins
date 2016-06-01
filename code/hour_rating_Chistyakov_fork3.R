@@ -81,7 +81,7 @@ pred_by_hour_rating <- function( train, test, new_dim_x1=290, rat_xy=290/725, ra
         validate_test_train_join1 <- test_train_join1[,.(count=.N),by=(row_id)]
         validate_test_train_join1 <- validate_test_train_join1[count==3]
         test_chunk <- anti_join(test_chunk, validate_test_train_join1, by = "row_id")
-        print(sprintf("Join1"))
+        #print(sprintf("Join1"))
         
         # Join 2
         test_train_join2 <- inner_join(select(test_chunk, row_id, x1, y1),
@@ -91,13 +91,13 @@ pred_by_hour_rating <- function( train, test, new_dim_x1=290, rat_xy=290/725, ra
         validate_test_train_join2 <- test_train_join2[,.(count=.N),by=(row_id)]
         validate_test_train_join2 <- validate_test_train_join2[count==3]
         test_chunk <- anti_join(test_chunk, validate_test_train_join2, by = "row_id")
-        print(sprintf("Join2"))
+        #print(sprintf("Join2"))
         
         # Join 3
         test_train_join3 <- left_join(select(test_chunk, row_id, x2, y2),
                                       train_group3,
                                       by = c("x2", "y2")) %>% select(row_id, place_id)
-        print(sprintf("Join3"))
+        #print(sprintf("Join3"))
         
         # Group all joins
         test_train_join_all <- rbindlist(list(test_train_join1,test_train_join2,test_train_join3), use.names=TRUE) %>% 
