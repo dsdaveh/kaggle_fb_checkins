@@ -55,18 +55,19 @@ pred_by_hour_rating <- function( train, test, new_dim_x1=290, rat_xy=290/725, ra
                    hour = as.integer(floor(time/30) %% 48)),
                  ]
     
-    print("Train group 2")
+    #print("Train group 2")
     train_group2  <- train[,.(rating=.N, max_time=max(time)), by=.(x1, y1, place_id)][order(x1,y1, -rating, -max_time)]
     train_group2 <- train_group2[,.(place_id, pos=seq_len(.N)), by=.(x1, y1)][pos<=3][,pos:=NULL]
     
-    print("Train group 3")
+    #print("Train group 3")
     train_group3  <- train[,.(rating=.N, max_time=max(time)), by=.(x2, y2, place_id)][order(x2,y2, -rating, -max_time)]
     train_group3 <- train_group3[,.(place_id, pos=seq_len(.N)), by=.(x2, y2)][pos<=3][,pos:=NULL]
     
     test_chunks <- split(test, test$hour)
+    cat(sprintf("task x/%d:", length(test_chunks)))
     result <- foreach(chunk=1:length(test_chunks), .combine="rbind", .packages = "dplyr") %do% 
-    {
-        print(sprintf("task %d/%d", chunk, length(test_chunks)))
+     {
+        cat(sprintf(" %d", chunk))
         test_chunk <- test_chunks[[chunk]]
         hour_test <- test_chunk$hour[1] 
         
@@ -121,7 +122,7 @@ pred_by_hour_rating <- function( train, test, new_dim_x1=290, rat_xy=290/725, ra
         return(test_train_join_all)
     }
     
-    print("Converting to final format")
+    #print("Converting to final format")
     setorder(result, row_id)
     library(tidyr)
     result <- unite_(result, "place_id", c("1", "2", "3"), sep = " ")

@@ -67,7 +67,7 @@ for (i in 1:nrow(param_grid)) {
     print(estimate_map_score(preds))
     
     t3 = proc.time()
-    print((t3-t2)[3])
+    #print((t3-t2)[3])
 }
 print((t3-t1)[3])  # 5839 secs @ 5%
 
