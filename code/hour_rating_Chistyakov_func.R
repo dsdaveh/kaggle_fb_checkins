@@ -32,10 +32,17 @@ pred_by_hour_rating <- function( train, test, new_dim_x1=290, rat_xy=290/725, ra
                      x2 = as.integer(floor(x/10 * new_dim_x2)),
                      y2 = as.integer(floor(y/10 * new_dim_y2)),               
                      quarter_period_of_day = as.integer(floor((time + 120) / (6*60)) %% 4),
-                     hour2 = as.integer(floor(time/120) %% 12),
+                     hour = as.integer(floor(time/30) %% 48),
                      time,
                      place_id,
-                     rating = log10(3+((time + 120.0) / (60 * 24 * 30)))),
+                     rating_history= log10(3+((time + 120.0) / (60 * 24 * 30)))),
+                   ]
+    
+    train <- train[,
+                   .(row_id, x1, y1, x2, y2,quarter_period_of_day, hour,time, place_id, rating_history,
+                     hour_mean=mean(as.numeric(hour)),
+                     hour_sd=sd(as.numeric(hour))),
+                   by=(place_id)
                    ]
     
     test <- test[,
@@ -45,70 +52,79 @@ pred_by_hour_rating <- function( train, test, new_dim_x1=290, rat_xy=290/725, ra
                    x2 = as.integer(floor(x/10 * new_dim_x2)),
                    y2 = as.integer(floor(y/10 * new_dim_y2)),               
                    quarter_period_of_day = as.integer(floor((time + 120) / (6*60)) %% 4),
-                   hour2 = as.integer(floor(time/120) %% 12)),
+                   hour = as.integer(floor(time/30) %% 48)),
                  ]
     
-    # Train group 2
-    train_group2  <- train[,.(rating=.N, max_time=max(time)), by=.(x1, y1, place_id)] 
-    setorder(train_group2,x1,y1, -rating, -max_time)
-    train_group2 <- train_group2[,.(place_id=head(place_id, n = 3)),by=.(x1, y1)]
+    print("Train group 2")
+    train_group2  <- train[,.(rating=.N, max_time=max(time)), by=.(x1, y1, place_id)][order(x1,y1, -rating, -max_time)]
+    train_group2 <- train_group2[,.(place_id, pos=seq_len(.N)), by=.(x1, y1)][pos<=3][,pos:=NULL]
     
-    # Train group 3
-    train_group3  <- train[,.(rating=.N, max_time=max(time)), by=.(x2, y2, place_id)] 
-    setorder(train_group3,x2,y2, -rating, -max_time)
-    train_group3 <- train_group3[,.(place_id=head(place_id, n = 3)),by=.(x2, y2)]
+    print("Train group 3")
+    train_group3  <- train[,.(rating=.N, max_time=max(time)), by=.(x2, y2, place_id)][order(x2,y2, -rating, -max_time)]
+    train_group3 <- train_group3[,.(place_id, pos=seq_len(.N)), by=.(x2, y2)][pos<=3][,pos:=NULL]
     
-    test_chunks <- split(test, test$hour2)
+    test_chunks <- split(test, test$hour)
     result <- foreach(chunk=1:length(test_chunks), .combine="rbind", .packages = "dplyr") %do% 
     {
         print(sprintf("task %d/%d", chunk, length(test_chunks)))
         test_chunk <- test_chunks[[chunk]]
-        hour2_test <- test_chunk$hour2[1] 
+        hour_test <- test_chunk$hour[1] 
         
         #####################################################
-        train[,rating_hour:= 1 / ((abs(hour2 - hour2_test) + 1)^(1/2) ) * rating,]
+        train[,rating:= 1 / ((abs(hour - hour_test) + 1)^(1/2) ) * rating_history,]
+        #####################################################
         
-        # Train group 1
-        train_group1  <- train[,.(rating=sum(rating_hour)), by=.(x1, y1, quarter_period_of_day, place_id)] 
-        setorder(train_group1,-rating)
-        train_group1 <- train_group1[,.(place_id=head(place_id, n = 3)), by=.(x1, y1, quarter_period_of_day)]
+        #print("Train group 1")
+        train_group1  <- train[,.(rating=sum(rating)), by=.(x1, y1, quarter_period_of_day, place_id)][order(-rating)]
+        train_group1 <- train_group1[,.(place_id, pos=seq_len(.N)), by=.(x1, y1, quarter_period_of_day)][pos<=3][,pos:=NULL]
         
-        # Join 1  
-        test_train_join1 <- inner_join(select(test_chunk, row_id, x1, y1, quarter_period_of_day),
-                                       train_group1,
-                                       by = c("x1", "y1", "quarter_period_of_day")) %>% select(row_id, place_id)
+        #print("Join1")
+        setkey(test_chunk,x1, y1, quarter_period_of_day)
+        setkey(train_group1,x1, y1, quarter_period_of_day)
         
-        validate_test_train_join1 <- test_train_join1[,.(count=.N),by=(row_id)]
-        validate_test_train_join1 <- validate_test_train_join1[count==3]
-        test_chunk <- anti_join(test_chunk, validate_test_train_join1, by = "row_id")
-        #print(sprintf("Join1"))
+        test_train_join1 <-
+            test_chunk[,.(row_id, x1, y1, quarter_period_of_day)][train_group1, nomatch=0, allow.cartesian=TRUE][,.(row_id, place_id)]
         
-        # Join 2
-        test_train_join2 <- inner_join(select(test_chunk, row_id, x1, y1),
-                                       train_group2,
-                                       by = c("x1", "y1")) %>% select(row_id, place_id)
+        validate_test_train_join <- test_train_join1[,.(count=.N),by=(row_id)][count==3]
+        test_chunk <- test_chunk[!validate_test_train_join, on = "row_id"]
         
-        validate_test_train_join2 <- test_train_join2[,.(count=.N),by=(row_id)]
-        validate_test_train_join2 <- validate_test_train_join2[count==3]
-        test_chunk <- anti_join(test_chunk, validate_test_train_join2, by = "row_id")
-        #print(sprintf("Join2"))
+        #print("Join2")
+        setkey(test_chunk,x1, y1)
+        setkey(train_group1,x1, y1)
         
-        # Join 3
-        test_train_join3 <- left_join(select(test_chunk, row_id, x2, y2),
-                                      train_group3,
-                                      by = c("x2", "y2")) %>% select(row_id, place_id)
-        #print(sprintf("Join3"))
+        test_train_join2 <-
+            test_chunk[,.(row_id, x1, y1)][train_group2, nomatch=0, allow.cartesian=TRUE][,.(row_id, place_id)]
         
-        # Group all joins
-        test_train_join_all <- rbindlist(list(test_train_join1,test_train_join2,test_train_join3), use.names=TRUE) %>% 
-            unique()
+        validate_test_train_join <- test_train_join2[,.(count=.N),by=(row_id)][count==3]
+        test_chunk <- test_chunk[!validate_test_train_join, on = "row_id"]
         
-        result_new <- test_train_join_all[, .(place_id = paste(head(place_id, 3),collapse=" ")), by = row_id]
-        print(sprintf("Group all"))
-        return(result_new)
+        #print("Join3")
+        setkey(test_chunk,x2, y2)
+        setkey(train_group3,x2, y2)
+        
+        test_train_join3 <-
+            train_group3[test_chunk[,.(row_id, x2, y2)], nomatch=NA, allow.cartesian=TRUE][,.(row_id, place_id)]
+        
+        #validate_test_train_join <- test_train_join3[,.(count=.N),by=(row_id)][count==3]
+        #test_chunk <- test_chunk[!validate_test_train_join, on = "row_id"]
+        #validate_test_train_join <- NULL
+        
+        #print("Group all")
+        test_train_join_all <- rbindlist(list(test_train_join1,test_train_join2,test_train_join3), use.names=TRUE) %>% unique()
+        
+        # result_new <- test_train_join_all[, .(place_id = paste(head(place_id, 3),collapse=" ")), by = row_id]
+        test_train_join_all <- test_train_join_all[, .(place_id, pos=seq_len(.N)), by = .(row_id)][pos<=3]
+        test_train_join_all <- dcast.data.table(test_train_join_all, row_id~pos, value.var="place_id")
+        
+        #print("Done")
+        
+        return(test_train_join_all)
     }
     
-    result$place_id[result$place_id=="NA"] <- ""
+    print("Converting to final format")
+    setorder(result, row_id)
+    library(tidyr)
+    result <- unite_(result, "place_id", c("1", "2", "3"), sep = " ")
     return(result)
 }
 #write_csv(result, "result.csv")
