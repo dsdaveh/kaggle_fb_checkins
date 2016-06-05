@@ -37,6 +37,12 @@ hp_summarize <- function(trn, i, j, min_time=0) {
         bind_cols( top_places, top_probs) 
 }
 
+construct_preds <- function(result, train) {
+    # result = results data.table (submissions format)
+    # train = train dataset data.table with place_ids corresponding to row_ids in result
+    result[,.(row_id, predictions=place_id)][df_train, nomatch=0][,.(row_id, predictions, truth=place_id)]
+}
+
 calculate_map_score <- function(preds, check_dups=FALSE) {
     # preds data.frame:
     # predictions = place_id from submissions file
