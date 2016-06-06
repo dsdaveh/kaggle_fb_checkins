@@ -2,6 +2,7 @@ library(dplyr)
 library(tidyr)
 library(data.table)
 library(ggplot2)
+library(xgboost)
 if (! grepl('\\/code$', getwd())) setwd('code')
 stopifnot (grepl('\\/code$', getwd()))
 
@@ -24,13 +25,13 @@ for( i in 1:nhect) with(h_sample[i, ], {
     text(x, y, i, pos=4) } )
 
 create_features <- function(dt) {
-    if (! grepl("place_id", names(dt))) dt$place_id <- "TBD"
+    if (! "place_id" %in% names(dt)) dt$place_id <- "TBD"
     dt[,
        .(row_id,
+         x, y, accuracy,
          hour = as.integer(floor(time/60) %% 24),
          weekday = as.integer(floor(time/(60 * 24)) %% 7),
          quarter_period_of_day = as.integer(floor((time + 120) / (6*60)) %% 4),
-         accuracy,
          rating_history= log10(3+((time + 120.0) / (60 * 24 * 30))),
          place_id),
        ]
@@ -88,18 +89,25 @@ for( i in 1:nhect) {
     setkey(result, row_id)
     res_hect <- result[val, nomatch=0][,.(row_id, predictions=place_id, truth=i.place_id)]
     h_score[i] <- calculate_map_score( res_hect ) 
-    cat(sprintf("%d: score=%f\n", i, h_score[i]))
+    cat(sprintf("%d: SC score=%f\n", i, h_score[i]))
+    
+    ## xgb classifier
+    xgb_preds <- hp_classify( trn, val, min_occ = 10)
+    score_xgb <- calculate_map_score( xgb_preds )
+    cat(sprintf("%d: xgb score=%f\n", i, score_xgb))
+    
     
     h_stats <- rbind( h_stats, data.frame(
         score_SC = h_score[i],
+        score_xgb = score_xgb,
         n_places_trn = length(unique(trn$place_id)),
         n_places_val = length(unique(val$place_id)),
         n_common = sum( unique(val$place_id) %in% unique(trn$place_id) )
     ))
 }
 
-print(h_score)
-print( c(mean(h_score), sd(h_score)))
+h_stats %>% summarize ( mean_SC = mean(score_SC), sd_SC = sd(score_SC),
+                        mean_xgb = mean(score_xgb), sd_xgb = sd(score_xgb))
 t1 <- proc.time()
 print((t1-t0)[3])
 ####################### (seed=8)
@@ -114,6 +122,58 @@ print((t1-t0)[3])
 # > print(sd(h_score$score))
 # [1] 0.09860176
 ##########################
+  
+xgb_params <- list( 
+#     eta = 0.01,      #
+#     max_depth = 6,   # 
+#     gamma = 0.5,     # 
+#     min_child_weight = 5, #
+#     subsample = 0.5,
+#     colsample_bytree = 0.5, 
+    eval_metric = "mlogloss", #merror",  #map@3",
+    objective = "multi:softprob",
+    # num_class = 12,
+    nthreads = 4,
+    # maximize = TRUE
+    verbose = 0
+)
+xgb_nrounds <- 50 #   
+###
+top3_preds <- function (pred, place_ids) {
+    predictions <- as.data.frame(matrix(pred, ncol=length(place_ids), byrow=TRUE ))
+    colnames(predictions) <- place_ids
+
+    predictions <- predictions %>% apply(1, function(x) names( sort( desc(x))[1:3])) %>%
+        as.vector() %>% matrix(ncol=3, byrow=TRUE) %>% data.frame() 
+}
+
+hp_classify <- function(trn, val, min_occ=2) {
+    trn <- create_features(trn)
+    val <- create_features(val)
+    
+    places <- trn %>% count(place_id, sort=TRUE) %>% filter(n >= min_occ) %>% .[[1]]
+    trn <- trn %>% filter(place_id %in% places)
+    trn$place_id <- as.factor(trn$place_id)
+    xgb_params$num_class <- length(places)
+    
+    xx = trn %>% select(-c(row_id, place_id)) %>% as.matrix()
+    yy = as.integer( trn$place_id ) - 1
+    
+    xgb.train <- xgb.DMatrix(xx, label = yy)
+    model <- xgboost( xgb.train,
+                      nrounds = xgb_nrounds,
+                      params = xgb_params, verbose = 0 )
+    pred <- predict( model, val %>% select(-c(row_id, place_id)) %>% as.matrix() )
+    
+    
+    top3 <- predict( model, xgb.DMatrix(val %>% select(-c(row_id, place_id)) %>% as.matrix() )) %>%
+        top3_preds( levels(trn$place_id) ) 
+    preds <- val %>% select( row_id, truth=place_id ) %>% 
+        bind_cols( data.frame(predictions = apply(top3, 1, paste, collapse=" ")) )
+    
+    return(preds)
+}
+    
     
 #dev version
 # hp_summarize <- hp_summarize_dev
@@ -139,12 +199,24 @@ hp_summarize_dev <- function(trn, hi, hj) {
         head( length(levels_orig))
     levels(hdata$pid) <- new_ids
     
+    # look for a reasonable threshhold for n_occ ( < 20 place_ids )
+    thresh <- hdata %>% count(place_id, sort=TRUE) %>% 
+        rename(n_occ=n) %>% count(n_occ) %>% 
+        arrange(n_occ) %>%
+        mutate( n_cutoff = sum(n) - cumsum(n)) 
+    thresh
+    thresh %>% ggplot(aes(n_occ, n_cutoff)) + geom_bar(stat="identity")
+    
     #find places with more than n occurances in grid
-    n_occ <- 0
+    n_occ <- 10
     mults <- hdata %>% count(place_id, sort=TRUE) %>% filter(n > n_occ) %>% .[[1]]
 
-    hdata %>% filter(place_id %in% mults[1:20]) %>%
+    hlimit <- length(mults)
+    hdata %>% filter(place_id %in% mults[1:hlimit]) %>%
         ggplot( aes(pid)) + geom_bar() + coord_flip()
+    
+    
+    
     
     #for h=98,62:
     # number of places in validation set = 457 | nrow(val)
