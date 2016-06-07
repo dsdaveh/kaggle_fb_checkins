@@ -110,7 +110,7 @@ for (i in 1:nrow(grpx)) {
         ih <- ih + 1
         
         tx <- proc.time()
-        if(ih %% 10 == 0) cat('.') 
+        if(ih %% 5 == 0) cat('.') 
         if(ih %% 100 == 0) cat( sprintf('  elapsed=%f\n', (tx-t0)[3]))
 
         ymin <- (chunk[ih, ]$y - 1) / 10.
@@ -128,10 +128,16 @@ for (i in 1:nrow(grpx)) {
 t1 <- proc.time()
 print((t1-t0)[3])
 
-result <-   xgb_results[,.(row_id, place_id=predictions)]
+## there could be duplicate row_id's so they need to be resolved
+## method below uses the row with the lowest X1 (probability) since  
+## in most cases place_id1 is identical and a lower X1 probability
+## results in a higher X2, X3 probability
+setkey(xgb_results, row_id, X1)
+xgb_results <- xgb_results[, n := 1:.N , by=row_id][n==1][ ,n := NULL]
+result <- xgb_results[,.(row_id, place_id=predictions)]
 result_p <- xgb_results[,.(row_id, X1, X2, X3)]
-submit_rows <- unique( xgb_results$row_id )
-blanks <- setdiff( test$row_id, submit_rows) 
+
+blanks <- setdiff( test$row_id, xgb_results$row_id) 
 result <- rbind(result, data.frame( row_id=blanks, place_id = ""))
 submit_name <- sprintf("../submissions/xgb_hectare_analysis2b_%s.csv", format(Sys.time(), "%Y_%m_%d_%H%M%S"))
 write.csv(result, file=submit_name, row.names=FALSE) #
