@@ -8,9 +8,8 @@ stopifnot (grepl('\\/code$', getwd()))
 
 source('fb_checkins_util.R')
 
-read_class <- c("integer", "numeric", "numeric", "integer", "integer", "character")
 if (! exists("df_train")) df_train <- fread('../input/train.csv', integer64='character')
-if (! exists("df_test")) df_test <- fread('../input/train.csv', integer64='character')
+if (! exists("df_test")) df_test <- fread('../input/test.csv', integer64='character')
 
 create_features <- function(dt) {
     if (! "place_id" %in% names(dt)) dt$place_id <- "TBD"
@@ -25,9 +24,63 @@ create_features <- function(dt) {
        ]
 }
 
+xgb_params <- list( 
+    #     eta = 0.01,      #
+    #     max_depth = 6,   # 
+    #     gamma = 0.5,     # 
+    #     min_child_weight = 5, #
+    #     subsample = 0.5,
+    #     colsample_bytree = 0.5, 
+    eval_metric = "mlogloss", #merror",  #map@3",
+    objective = "multi:softprob",
+    # num_class = 12,
+    nthreads = 4,
+    # maximize = TRUE
+    verbose = 0
+)
+xgb_nrounds <- 50 #   
+###
+top3_preds <- function (pred, place_ids) {
+    predictions <- as.data.frame(matrix(pred, ncol=length(place_ids), byrow=TRUE ))
+    colnames(predictions) <- place_ids
+    
+    pred3 <- predictions %>% apply(1, function(x) names( sort( desc(x))[1:3])) %>%
+        as.vector() %>% matrix(ncol=3, byrow=TRUE) %>% data.frame() 
+    prob3 <- predictions %>% apply(1, function(x)        sort( desc(x))[1:3])  %>%
+        as.vector() %>% matrix(ncol=3, byrow=TRUE) %>% data.frame() 
+    cbind( pred3, -prob3)
+}
+
+hp_classify <- function(trn, val, min_occ=2) {
+    trn <- create_features(trn)
+    val <- create_features(val)
+    
+    places <- trn %>% count(place_id, sort=TRUE) %>% filter(n >= min_occ) %>% .[[1]]
+    trn <- trn %>% filter(place_id %in% places)
+    trn$place_id <- as.factor(trn$place_id)
+    xgb_params$num_class <- length(places)
+    
+    xx = trn %>% select(-c(row_id, place_id)) %>% as.matrix()
+    yy = as.integer( trn$place_id ) - 1
+    
+    xgb.train <- xgb.DMatrix(xx, label = yy)
+    model <- xgboost( xgb.train,
+                      nrounds = xgb_nrounds,
+                      params = xgb_params, verbose = 0 )
+    pred <- predict( model, val %>% select(-c(row_id, place_id)) %>% as.matrix() )
+    
+    top3 <- predict( model, xgb.DMatrix(val %>% select(-c(row_id, place_id)) %>% as.matrix() )) %>%
+        top3_preds( levels(trn$place_id) ) 
+    preds <- val %>% select( row_id, truth=place_id ) %>% 
+        bind_cols( data.frame(predictions = apply(top3[,1:3], 1, paste, collapse=" "),
+                              top3[4:6]) )
+    
+    return(preds)
+}
+
 set.seed(48)
 h_backlog <- expand.grid( x=1:100, y=1:100) %>% sample_frac(size=1)
-chunk_size = 3
+chunk_size = 1000
 chunk <- h_backlog[1:chunk_size,]
 h_backlog <- h_backlog[-(1:chunk_size),]
 
@@ -85,58 +138,5 @@ write.csv(result, file=submit_name, row.names=FALSE) #
 submit_name_p <- gsub("2b_", "2b_probs_", submit_name)
 write.csv(result_p, file=submit_name_p, row.names=FALSE) #
 
-xgb_params <- list( 
-#     eta = 0.01,      #
-#     max_depth = 6,   # 
-#     gamma = 0.5,     # 
-#     min_child_weight = 5, #
-#     subsample = 0.5,
-#     colsample_bytree = 0.5, 
-    eval_metric = "mlogloss", #merror",  #map@3",
-    objective = "multi:softprob",
-    # num_class = 12,
-    nthreads = 4,
-    # maximize = TRUE
-    verbose = 0
-)
-xgb_nrounds <- 50 #   
-###
-top3_preds <- function (pred, place_ids) {
-    predictions <- as.data.frame(matrix(pred, ncol=length(place_ids), byrow=TRUE ))
-    colnames(predictions) <- place_ids
 
-    pred3 <- predictions %>% apply(1, function(x) names( sort( desc(x))[1:3])) %>%
-        as.vector() %>% matrix(ncol=3, byrow=TRUE) %>% data.frame() 
-    prob3 <- predictions %>% apply(1, function(x)        sort( desc(x))[1:3])  %>%
-        as.vector() %>% matrix(ncol=3, byrow=TRUE) %>% data.frame() 
-    cbind( pred3, -prob3)
-}
-
-hp_classify <- function(trn, val, min_occ=2) {
-    trn <- create_features(trn)
-    val <- create_features(val)
-    
-    places <- trn %>% count(place_id, sort=TRUE) %>% filter(n >= min_occ) %>% .[[1]]
-    trn <- trn %>% filter(place_id %in% places)
-    trn$place_id <- as.factor(trn$place_id)
-    xgb_params$num_class <- length(places)
-    
-    xx = trn %>% select(-c(row_id, place_id)) %>% as.matrix()
-    yy = as.integer( trn$place_id ) - 1
-    
-    xgb.train <- xgb.DMatrix(xx, label = yy)
-    model <- xgboost( xgb.train,
-                      nrounds = xgb_nrounds,
-                      params = xgb_params, verbose = 0 )
-    pred <- predict( model, val %>% select(-c(row_id, place_id)) %>% as.matrix() )
-    
-    top3 <- predict( model, xgb.DMatrix(val %>% select(-c(row_id, place_id)) %>% as.matrix() )) %>%
-        top3_preds( levels(trn$place_id) ) 
-    preds <- val %>% select( row_id, truth=place_id ) %>% 
-        bind_cols( data.frame(predictions = apply(top3[,1:3], 1, paste, collapse=" "),
-                              top3[4:6]) )
-    
-    return(preds)
-}
-    
  
