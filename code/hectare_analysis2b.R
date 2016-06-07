@@ -1,3 +1,5 @@
+stopifnot( exists("ichunk"))  # ichunk = 1 thru 10 (100000 / chunk_size)
+
 library(dplyr)
 library(tidyr)
 library(data.table)
@@ -79,10 +81,9 @@ hp_classify <- function(trn, val, min_occ=2) {
 }
 
 set.seed(48)
-h_backlog <- expand.grid( x=1:100, y=1:100) %>% sample_frac(size=1)
+h_scramble <- expand.grid( x=1:100, y=1:100) %>% sample_frac(size=1)
 chunk_size = 1000
-chunk <- h_backlog[1:chunk_size,]
-h_backlog <- h_backlog[-(1:chunk_size),]
+chunk <- h_scramble[ ((ichunk-1) * chunk_size + 1):(ichunk * chunk_size),]
 
 plot(c(0,100), c(0,100), type="n")
 for( i in 1:chunk_size) with(chunk[i, ], { rect(x-1, y-1, x, y) } )
@@ -133,16 +134,17 @@ print((t1-t0)[3])
 ## in most cases place_id1 is identical and a lower X1 probability
 ## results in a higher X2, X3 probability
 setkey(xgb_results, row_id, X1)
-xgb_results <- xgb_results[, n := 1:.N , by=row_id][n==1][ ,n := NULL]
+xgb_results <- xgb_results[, n := 1:.N , by=row_id][n==1][ ,n := NULL][, chunk := ichunk]
 result <- xgb_results[,.(row_id, place_id=predictions)]
 result_p <- xgb_results[,.(row_id, X1, X2, X3)]
 
 blanks <- setdiff( test$row_id, xgb_results$row_id) 
 result <- rbind(result, data.frame( row_id=blanks, place_id = ""))
-submit_name <- sprintf("../submissions/xgb_hectare_analysis2b_%s.csv", format(Sys.time(), "%Y_%m_%d_%H%M%S"))
+submit_name <- sprintf("../submissions/xgb_ha2b_chunk%d_%s.csv", ichunk, format(Sys.time(), "%Y_%m_%d_%H%M%S"))
 write.csv(result, file=submit_name, row.names=FALSE) #
 submit_name_p <- gsub("2b_", "2b_probs_", submit_name)
 write.csv(result_p, file=submit_name_p, row.names=FALSE) #
 
-
- 
+data_name <- sprintf("../data/xgb_results_chunk%d.RData", ichunk)
+save(xgb_results, file=data_name) 
+rm(ichunk) #to prevent accidental overwrite
