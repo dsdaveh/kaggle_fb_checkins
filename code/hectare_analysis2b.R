@@ -1,19 +1,45 @@
-stopifnot( exists("ichunk"))  # ichunk = 1 thru 10 (100000 / chunk_size)
+# if ichunk is set (1 thru 10) will create a chunk. Otherwise just loads functions
+
+if (! grepl('\\/code$', getwd())) setwd('code')
+stopifnot (grepl('\\/code$', getwd()))
 
 library(dplyr)
 library(tidyr)
 library(data.table)
 library(ggplot2)
 library(xgboost)
-if (! grepl('\\/code$', getwd())) setwd('code')
-stopifnot (grepl('\\/code$', getwd()))
 
 source('fb_checkins_util.R')
+EOL <- '...\n'
 
-if (! exists("df_train")) df_train <- fread('../input/train.csv', integer64='character')
-if (! exists("df_test")) df_test <- fread('../input/test.csv', integer64='character')
+#call this manually
+create_ha2b_submission <- function( chunks=1:10 ) {
+    combined <- data.frame()
+    for (i in chunks) {
+        data_file <- sprintf(data_template, i)
+        cat('combining ', data_file, EOL)
+        load( file= data_file)
+        combined <- rbind(combined, xgb_results)
+        rm(xgb_results)
+    }
+    setkey(combined, row_id, X1)
+    combined <- combined[, n := 1:.N , by=row_id][n==1][ ,n := NULL]
+    result <- combined[,.(row_id, place_id=predictions)]
+    result_p <- combined[,.(row_id, X1, X2, X3)]
+    
+    submit_name <- sprintf("../submissions/xgb_ha2b_all_%s.csv", format(Sys.time(), "%Y_%m_%d_%H%M%S"))
+    cat('writing', submit_name, EOL)
+    write.csv(result, file=submit_name, row.names=FALSE) #
+    submit_name_p <- gsub("2b_", "2b_probs_", submit_name)
+    cat('writing', submit_name_p, EOL)
+    write.csv(result_p, file=submit_name_p, row.names=FALSE) #
+    
+    data_file <- gsub("_chunk[0-9]+", "_combined", data_file)
+    cat('saving "combined" as', data_file, EOL)
+    save(combined, file=data_file)
+}
 
-create_features <- function(dt) {
+create_features_base <- function(dt) {
     if (! "place_id" %in% names(dt)) dt$place_id <- "TBD"
     dt[,
        .(row_id,
@@ -25,6 +51,8 @@ create_features <- function(dt) {
          place_id),
        ]
 }
+
+if (! exists("create_features")) create_features <- create_features_base
 
 xgb_params <- list( 
     #     eta = 0.01,      #
@@ -53,7 +81,7 @@ top3_preds <- function (pred, place_ids) {
     cbind( pred3, -prob3)
 }
 
-hp_classify <- function(trn, val, min_occ=2) {
+hp_classify <- function(trn, val, min_occ=2, verbose=0) {
     trn <- create_features(trn)
     val <- create_features(val)
     
@@ -68,7 +96,7 @@ hp_classify <- function(trn, val, min_occ=2) {
     xgb.train <- xgb.DMatrix(xx, label = yy)
     model <- xgboost( xgb.train,
                       nrounds = xgb_nrounds,
-                      params = xgb_params, verbose = 0 )
+                      params = xgb_params, verbose = verbose )
     pred <- predict( model, val %>% select(-c(row_id, place_id)) %>% as.matrix() )
     
     top3 <- predict( model, xgb.DMatrix(val %>% select(-c(row_id, place_id)) %>% as.matrix() )) %>%
@@ -79,6 +107,11 @@ hp_classify <- function(trn, val, min_occ=2) {
     
     return(preds)
 }
+
+stopifnot( exists("ichunk"))  # ichunk = 1 thru 10 (100000 / chunk_size)
+
+if (! exists("df_train")) df_train <- fread('../input/train.csv', integer64='character')
+if (! exists("df_test")) df_test <- fread('../input/test.csv', integer64='character')
 
 set.seed(48)
 h_scramble <- expand.grid( x=1:100, y=1:100) %>% sample_frac(size=1)
@@ -140,11 +173,18 @@ result_p <- xgb_results[,.(row_id, X1, X2, X3)]
 
 blanks <- setdiff( test$row_id, xgb_results$row_id) 
 result <- rbind(result, data.frame( row_id=blanks, place_id = ""))
-submit_name <- sprintf("../submissions/xgb_ha2b_chunk%d_%s.csv", ichunk, format(Sys.time(), "%Y_%m_%d_%H%M%S"))
+if (! exists(submit_name)) submit_name <- 
+    sprintf("../submissions/xgb_ha2b_chunk%d_%s.csv", ichunk, format(Sys.time(), "%Y_%m_%d_%H%M%S"))
+cat('writing', submit_name, EOL)
 write.csv(result, file=submit_name, row.names=FALSE) #
-submit_name_p <- gsub("2b_", "2b_probs_", submit_name)
+if (! exists(submit_name_p)) submit_name_p <- gsub("2b_", "2b_probs_", submit_name)
+cat('writing', submit_name_p, EOL)
 write.csv(result_p, file=submit_name_p, row.names=FALSE) #
 
-data_name <- sprintf("../data/xgb_results_chunk%d.RData", ichunk)
+data_template <- "../data/xgb_results_chunk%d.RData"
+data_name <- sprintf(data_template, ichunk)
 save(xgb_results, file=data_name) 
 rm(ichunk) #to prevent accidental overwrite
+
+
+
