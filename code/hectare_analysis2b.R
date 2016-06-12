@@ -81,7 +81,7 @@ top3_preds <- function (pred, place_ids) {
     cbind( pred3, -prob3)
 }
 
-hp_classify <- function(trn, val, min_occ=2, verbose=0) {
+hp_classify_xgb <- function(trn, val, min_occ=2, verbose=0) {
     trn <- create_features(trn)
     val <- create_features(val)
     
@@ -107,6 +107,8 @@ hp_classify <- function(trn, val, min_occ=2, verbose=0) {
     
     return(preds)
 }
+if(! exists("hp_classify")) hp_classify <- hp_classify_xgb
+
 
 stopifnot( exists("ichunk"))  # ichunk = 1 thru 10 (100000 / chunk_size)
 
@@ -115,7 +117,7 @@ if (! exists("df_test")) df_test <- fread('../input/test.csv', integer64='charac
 
 set.seed(48)
 h_scramble <- expand.grid( x=1:100, y=1:100) %>% sample_frac(size=1)
-chunk_size = 1000
+if( ! exists("chunk_size")) chunk_size = 1000
 chunk <- h_scramble[ ((ichunk-1) * chunk_size + 1):(ichunk * chunk_size),]
 
 plot(c(0,100), c(0,100), type="n")
