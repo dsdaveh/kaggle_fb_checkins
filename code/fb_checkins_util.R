@@ -2,6 +2,105 @@ library(stringr)
 library(dplyr)
 library(tidyr)
 
+EOL = "\n"
+
+xgb_importance <- list()
+hp_classify_xgb <- function(trn, val, min_occ=2, verbose=0, importance = FALSE) {
+    trn <- create_features(trn)
+    val <- create_features(val)
+    
+    places <- trn %>% count(place_id, sort=TRUE) %>% filter(n >= min_occ) %>% .[[1]]
+    trn <- trn %>% filter(place_id %in% places)
+    trn$place_id <- as.factor(trn$place_id)
+    xgb_params$num_class <- length(places)
+    
+    xx = trn %>% select(-c(row_id, place_id)) %>% as.matrix()
+    yy = as.integer( trn$place_id ) - 1
+    
+    xgb.train <- xgb.DMatrix(xx, label = yy)
+    model <- xgboost( xgb.train,
+                      nrounds = xgb_nrounds,
+                      params = xgb_params, verbose = verbose )
+    pred <- predict( model, val %>% select(-c(row_id, place_id)) %>% as.matrix() )
+    
+    #massively increases run time 
+    if (importance) {
+        cat ('capturing xgb_importance a (be patient)... ', EOL)
+        xgb_importance <<- c(xgb_importance, list(xgb.importance( colnames(xx), model=model )))
+    }
+    
+    top3 <- predict( model, xgb.DMatrix(val %>% select(-c(row_id, place_id)) %>% as.matrix() )) %>%
+        top3_preds( levels(trn$place_id) ) 
+    preds <- val %>% select( row_id, truth=place_id ) %>% 
+        bind_cols( data.frame(predictions = apply(top3[,1:3], 1, paste, collapse=" "),
+                              top3[4:6]) )
+    
+    return(preds)
+}
+
+
+global_features <- function(dt) {
+    
+    time0 <- ymd_hms('2014-01-01 00:00:00')
+    dt$ltime <- dt[, time0 + minutes(time) ]
+    if (! "place_id" %in% names(dt)) dt$place_id <- "TBD"
+    
+    dt <- dt[,
+             c(.SD, .(
+                 abs_hr = as.integer(floor(time/60)), 
+                 hour = hour(ltime),
+                 weekday = wday(ltime),
+                 mday = day(ltime),
+                 month = month(ltime),
+                 year = (year(ltime) - 2013),
+                 quarter_period_of_day = as.integer(hour(ltime) / 6),
+                 rating_history= log10(3+month(ltime)) )) ]
+    
+    n_this_hr <-  dt[, .(g_n_this_hr = .N), abs_hr]
+    n_this_hr$g_hr_chg <- c(0, diff( n_this_hr$g_n_this_hr)) / n_this_hr$g_n_this_hr
+    n_this_hr$g_n_this_hr <- NULL
+    
+    #JOIN n_this_hr to fea
+    setkey(dt, abs_hr); setkey(n_this_hr, abs_hr); dt <- dt[n_this_hr]
+    
+    setkey(dt, time)
+    #dt$g_time_diff <- c(0, diff(dt$time))
+    
+    #remove time absolute time vars (except original)
+    dt$ltime <- NULL
+    
+    return(dt)
+}
+
+create_features <- function(dt) {
+    
+    if (! "place_id" %in% names(dt)) dt$place_id <- "TBD"
+    
+    n_this_hr <- dt[, .(n_this_hr = .N), abs_hr]
+    
+    setkey(dt, abs_hr); setkey(n_this_hr, abs_hr); dt <- dt[n_this_hr]
+    
+    setkey(dt, time)
+    dt$time_diff <- c(0, diff(dt$time))
+    dt$time <- NULL
+    dt$abs_hr <- NULL
+    
+    dt$rat_hr_chg <- dt$n_this_hr * dt$g_hr_chg
+    
+    return(dt)
+}
+
+top3_preds <- function (pred, place_ids) {
+    predictions <- as.data.frame(matrix(pred, ncol=length(place_ids), byrow=TRUE ))
+    colnames(predictions) <- place_ids
+    
+    pred3 <- predictions %>% apply(1, function(x) names( sort( desc(x))[1:3])) %>%
+        as.vector() %>% matrix(ncol=3, byrow=TRUE) %>% data.frame() 
+    prob3 <- predictions %>% apply(1, function(x)        sort( desc(x))[1:3])  %>%
+        as.vector() %>% matrix(ncol=3, byrow=TRUE) %>% data.frame() 
+    cbind( pred3, -prob3)
+}
+
 hp_summarize <- function(trn, i, j, min_time=0) {
     # i,j = hectare id from 1-100 in x and y, respectively
     stopifnot( i > 0 & i <= 100 & j > 0 & j <= 100)
@@ -200,3 +299,41 @@ test.mapk <- function()
     checkEqualsNumeric(mapk(3, list(c(1,3),1:3,1:3), list(1:5,c(1,1,1),c(1,2,1))), 11/18)
     
 }
+
+if (! exists("tcheck.print")) tcheck.print = FALSE
+if (! exists("tcheck.df")) tcheck.df <- data.frame( stringsAsFactors = FALSE)
+tcheck.default_string <- function() sprintf( "t=%d", nrow(tcheck.df))
+tcheck.tx <- list( proc.time()) 
+tcheck <- function(t=1, desc = tcheck.default_string() ) {
+    # t=0 to reset counter, t=1 incremental time output,  t=n time difference from n intervals
+    #
+    # use:
+    # tcheck(0) #reset the counter
+    # <computation 1>
+    # tcheck()
+    # <computation 2>
+    # tcheck()
+    # tcheck(2)  # for total time
+    #
+    t <- min( t, length(tcheck.tx))
+    pt <- proc.time()
+    if (t == 0) { 
+        tcheck.tx <<- list( proc.time()) 
+        tcheck.df <<- data.frame( elapsed = pt[3], desc = desc,stringsAsFactors = FALSE )
+    } else {
+        tcheck.tx <<- c( tcheck.tx, list(pt))
+        tcheck.df <<- rbind( tcheck.df, data.frame( elapsed = pt[3], desc = desc, stringsAsFactors = FALSE ) )
+        tn <- nrow( tcheck.df )
+        elapsed_delta <- diff( tcheck.df[ c(tn-t, tn),]$elapsed )
+        out_str <- ifelse ( t == 1
+                            , sprintf("%f elapsed for %s", elapsed_delta
+                                      , tcheck.df[tn, "desc"] )
+                            , sprintf("%f elapsed from %s:%s", elapsed_delta
+                                      , tcheck.df[tn, "desc"], tcheck.df[tn-t, "desc"]) )
+        if (tcheck.print) print( out_str)
+        return( out_str )
+        #         tn <- length(tcheck.tx)
+        #         print ( tcheck.tx[[tn]] - tcheck.tx[[tn-t]]) 
+    }
+}
+get_tcheck <- function() tcheck.df %>% mutate( delta=c( 0, diff(elapsed)) ) %>% select( desc, delta)

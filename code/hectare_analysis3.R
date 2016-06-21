@@ -141,10 +141,15 @@ for( i in 1:chunk_size) with(chunk[i, ], { rect(x-1, y-1, x, y) } )
 # method 1: split based on time
 if( ! exists("train")) train <-df_train
 
-setorder(train, time)
-train_cut_ix <- as.integer(nrow(train) * .80)
-test <- train[(train_cut_ix+1):nrow(train), ]
-train <- train[1:train_cut_ix, ]
+# if test is supplied use it, otherwise create a validation set
+validation_test <- FALSE
+if( ! exists("test")) {
+    validation_test <- TRUE
+    setorder(train, time)
+    train_cut_ix <- as.integer(nrow(train) * .80)
+    test <- train[(train_cut_ix+1):nrow(train), ]
+    train <- train[1:train_cut_ix, ]
+}
 
 t0 <- proc.time()
 
@@ -189,7 +194,7 @@ print(c( mean(chunk$score), sd(chunk$score)))
 t1 <- proc.time()
 print((t1-t0)[3])
 
-
+if (validation_test) rm(test)
     
     
 

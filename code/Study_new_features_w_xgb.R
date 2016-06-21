@@ -1,21 +1,23 @@
+rm(ichunk)
+source('hectare_analysis2b.R')
+
 ichunk=1
 chunk_size = 10
-hp_classify <- hp_classify_xgb
+#hp_classify <- hp_classify_xgb
 source('hectare_analysis3.R')
 # ..[1] 0.54594484 0.08941181  elapsed 67.39 
 
 global_features <- function(dt) {
-    fea <- dt[ ,.(row_id, x, y, accuracy, time, place_id,
+    fea <- dt[ , c( .SD, .(
                   abs_day = as.integer(floor(time/(60*24))), 
                   abs_hr = as.integer(floor(time/60)), 
-                  abs_15m = as.integer(floor(time/15)) ) ]
+                  abs_15m = as.integer(floor(time/15)) )) ]
     
     n_this_day <- fea[, .(g_n_this_day = .N), abs_day]
     n_this_15m <- fea[, .(g_n_this_15m = .N), abs_15m]
     n_this_hr <-  fea[, .(g_n_this_hr = .N), abs_hr]
     n_this_hr$g_hr_chg <- c(0, diff( n_this_hr$g_n_this_hr)) / n_this_hr$g_n_this_hr
-    hr_change <- 
-    
+
     setkey(fea, abs_day); setkey(n_this_day, abs_day); fea <- fea[n_this_day]
     setkey(fea, abs_hr); setkey(n_this_hr, abs_hr); fea <- fea[n_this_hr]
     setkey(fea, abs_15m); setkey(n_this_15m, abs_15m); fea <- fea[n_this_15m]
@@ -37,8 +39,7 @@ create_features <- function(dt) {
     wt <- c(1, 1, 4, 3, 1./22, 2, 10, 1, 1)
     wt <- c(1, 1, 1, 1, 1, 1, 1, 1, 1)
     fea <- dt[,
-       .(row_id,
-         x, y, accuracy, time,
+       c(.SD, .(
          abs_day = as.integer(floor(time/(60*24))), 
          abs_hr = as.integer(floor(time/60)), 
          abs_15m = as.integer(floor(time/15)),
@@ -48,8 +49,7 @@ create_features <- function(dt) {
          month = month(ltime) *wt[6],
          year = (year(ltime) - 2013) *wt[7],
          quarter_period_of_day = as.integer(hour(ltime) / 6) *wt[8],
-         rating_history= log10(3+month(ltime)) *wt[9],
-         place_id) ]
+         rating_history= log10(3+month(ltime)) *wt[9] )) ]
 
     n_this_day <- fea[, .(n_this_day = .N), abs_day]
     n_this_hr <- fea[, .(n_this_hr = .N), abs_hr]
@@ -65,6 +65,12 @@ create_features <- function(dt) {
     fea$abs_day <- NULL
     fea$abs_hr <- NULL
     fea$abs_15m <- NULL
+    fea$ltime <- NULL
+    
+    #fea$rat_n_day <- fea$n_this_day / fea$g_n_this_day 
+    #fea$rat_n_hr <- fea$n_this_hr / fea$g_n_this_hr 
+    #fea$rat_n_15m <- fea$n_this_15m / fea$g_n_this_15m
+    fea$rat_hr_chg <- fea$n_this_hr * fea$g_hr_chg
     
     return(fea)
 }
@@ -74,7 +80,7 @@ source('hectare_analysis3.R')
 
 chunk_size <- 10
 imp <- list()
-hp_classify <- function(trn, val, min_occ=2, verbose=0) {
+hp_classify_imp <- function(trn, val, min_occ=2, verbose=0) {
     trn <- create_features(trn)
     val <- create_features(val)
     
@@ -93,7 +99,7 @@ hp_classify <- function(trn, val, min_occ=2, verbose=0) {
     pred <- predict( model, val %>% select(-c(row_id, place_id)) %>% as.matrix() )
     
     #dev only
-    #imp <<- c(imp, list(xgb.importance( colnames(xx), model=model )))
+    imp <<- c(imp, list(xgb.importance( colnames(xx), model=model )))
     
     top3 <- predict( model, xgb.DMatrix(val %>% select(-c(row_id, place_id)) %>% as.matrix() )) %>%
         top3_preds( levels(trn$place_id) ) 
@@ -173,4 +179,105 @@ chunk_size = 10
 # ..[1] 0.55058580 0.09160343
 
 train <- global_features(df_train)
-#..[1] 0.55268049 0.09224294 elapsed 72.03 
+#..[1] 0.55268049 0.09224294 elapsed 72.03  !!!!!!!!! can't reproduce this
+#..[1] 0.54506876 0.08662349 elapsed 110.36 
+
+load('../data/train_w_global.RData')
+train$g_n_this_day <- NULL
+train$g_n_this_hr <- NULL
+train$g_n_this_15m <- NULL
+source('hectare_analysis3.R')
+# ..[1] 0.55320273 0.09266388
+
+chunk_history <- data.frame()
+for (ieta in c(.1, 0.07, .13)) {
+    xgb_params$eta = ieta
+    for(jz in 1:50) {
+        xgb_nrounds <- 50 + jz*2 
+        load('../data/train_w_global.RData')
+        train$g_n_this_day <- NULL
+        train$g_n_this_hr <- NULL
+        train$g_n_this_15m <- NULL
+        source('hectare_analysis3.R')
+        chunk_scores <- cbind(chunk, data.frame( eta = ieta, xgb_nrounds = xgb_nrounds))
+        print(chunk_scores)
+        chunk_history <- rbind(chunk_history, chunk_scores)
+    }
+}
+
+chunk_history <- chunk_history %>% bind_cols( data.frame(chunk= rep(1:10, 50)))
+write.csv(chunk_history, '../data/Study_new_features_chunk_history.csv', row.names = F)
+chunk_history %>% filter(eta==.1) %>% group_by(chunk) %>%
+    mutate(score.norm = normalize(score)) %>% 
+    ggplot(aes(x=xgb_nrounds, y=score, group=chunk, color=as.factor(chunk))) + geom_line()
+
+#6/14
+load('../data/train_w_global.RData')
+train$g_n_this_day <- NULL
+train$g_n_this_hr <- NULL
+train$g_n_this_15m <- NULL
+train_xx <- train
+xgb_nrounds = 54
+source('hectare_analysis3.R')
+# ..[1] 0.55012904 0.09434786
+train <- train_xx
+xgb_params$eta = 0.1
+# ..[1] 0.55473793 0.09173208
+train <- train_xx
+xgb_params$eta = 0.3
+# ..[1] 0.55012904 0.09434786  ### confirming the default. 
+load('../data/train_w_global.RData')
+
+### with the other 3 g_n... features
+train_xx <- train
+xgb_params$eta = 0.1 
+#elapsed 85.64 
+#..[1] 0.54386388 0.08707054   ## expected this drop (the point of todays exercise is restore with tuning)
+train <- train_xx
+
+## add_rat_hr_chg
+# ..[1] 0.55297889 0.09148562 elapsed 82.24 <<<<<<  BEST !!
+
+## add  rat_n_day     rat_n_hr   rat_n_15m   
+# ..[1] 0.54297402 0.08907978    ### only a mild drop, so these additional vars could help
+# elapsed 94.78 
+
+chunk_history <- data.frame()
+#for (ieta in c(.1, 0.07, .13)) {
+#    xgb_params$eta = ieta
+xgb_params$eta = 0.07 # .08, 0.1
+xgb_params$max_depth = 8   #6 default=6 
+
+    for(jz in seq(190,230,20)) {
+        xgb_nrounds <- jz
+        train <- train_xx
+        source('hectare_analysis3.R')
+        chunk_scores <- cbind(chunk, data.frame( eta = xgb_params$eta,
+                                                 xgb_nrounds = xgb_nrounds,
+                                                 max_depth = xgb_params$max_depth,
+                                                 chunk = 1:chunk_size))
+        print(chunk_scores)
+        chunk_history <- rbind(chunk_history, chunk_scores)
+    }
+#}
+chunk_history %>% group_by(eta, xgb_nrounds) %>%
+    summarize (score = mean(score)) %>% 
+    ggplot(aes(x=xgb_nrounds, y=score, group=eta, color=as.factor(eta))) + geom_line()
+
+#write.csv(chunk_history, file="../Study_new_features_chunk_history2.csv", row.names = FALSE)
+# chunk_history <- read.csv(file="../data/Study_new_features_chunk_history2.csv") %>% tbl_df
+
+#with importance
+hp_classify <- hp_classify_imp
+impdf <- data.frame()
+for (i in 1:length(imp)) impdf <- rbind(impdf, imp[[i]] %>% mutate(cell=i))
+
+imp_order <- impdf %>% group_by(Feature) %>% summarize(Gain = mean(Gain)) %>% arrange(Gain) %>% .[[1]]
+impdf %>% 
+    ggplot(aes(Feature, Gain)) + 
+    geom_bar( data=impdf %>% mutate(Gain=Gain/length(imp)), stat="identity") +
+    geom_bar( stat="identity", position="dodge", aes(fill=as.factor(cell))) + 
+    scale_x_discrete(limits = imp_order) +
+    coord_flip() 
+hp_classify <- hp_classify_xgb
+    
