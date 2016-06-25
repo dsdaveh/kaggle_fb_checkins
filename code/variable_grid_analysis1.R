@@ -45,11 +45,14 @@ if (! exists("grid_nx")) grid_nx = 50
 if (! exists("grid_ny")) grid_ny = 50
 
 set.seed(48)
-h_scramble <- expand.grid( x=1:grid_nx, y=1:grid_nx) %>% sample_frac(size=1)
+h_scramble <- expand.grid( x=1:grid_nx, y=1:grid_ny) %>% sample_frac(size=1)
 
 chunk <- h_scramble[ ((ichunk-1) * chunk_size + 1):(ichunk * chunk_size),]
 
-plot(c(0,grid_nx), c(0,grid_nx), type="n")
+gx_scale <- grid_nx / 10.
+gy_scale <- grid_ny / 10.
+
+plot(c(0,grid_nx), c(0,grid_ny), type="n")
 for( i in 1:chunk_size) with(chunk[i, ], { rect(x-1, y-1, x, y) } )
 
 hp_results <- data.table()
@@ -58,9 +61,6 @@ ih <- ncum <- 0
 grpx <- chunk %>% count(x)
 chunk <- chunk %>% arrange (x)
 chunk$score <- NA
-
-gx_scale <- grid_nx / 10.
-gy_scale <- grid_ny / 10.
 
 cat( "ichunk, chunk_size, grid_nx, grid_ny:", ichunk, chunk_size, grid_nx, grid_ny, EOL)
 t0 <- proc.time()

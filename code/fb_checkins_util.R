@@ -1,8 +1,11 @@
 library(stringr)
 library(dplyr)
 library(tidyr)
+library(data.table)
 
 EOL = "\n"
+
+normalize <- function(x) (x - min(x)) / diff(range(x))
 
 xgb_importance <- list()
 hp_classify_xgb <- function(trn, val, min_occ=2, verbose=0, importance = FALSE) {
