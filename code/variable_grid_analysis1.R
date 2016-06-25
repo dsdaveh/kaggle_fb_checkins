@@ -43,6 +43,7 @@ if (! exists("ichunk")) ichunk = 1
 if (! exists("chunk_size")) chunk_size = 10
 if (! exists("grid_nx")) grid_nx = 50
 if (! exists("grid_ny")) grid_ny = 50
+if (! exists("min_occ")) min_occ = 10
 
 set.seed(48)
 h_scramble <- expand.grid( x=1:grid_nx, y=1:grid_ny) %>% sample_frac(size=1)
@@ -87,7 +88,7 @@ for (i in 1:nrow(grpx)) {
         ## xgb classifier
         if (! exists("xgb_nrounds")) xgb_nrounds <- 50 #   
         if (! exists("verbose")) verbose <- 0 #   
-        preds <- hp_classify( trn, tst, min_occ = 10, verbose=verbose) %>% data.table()
+        preds <- hp_classify( trn, tst, min_occ = min_occ, verbose=verbose) %>% data.table()
         #xgb_preds$truth <- NULL
  
         hp_results <- rbind( hp_results, preds) 

@@ -60,8 +60,8 @@ global_features <- function(dt) {
                  rating_history= log10(3+month(ltime)) )) ]
     
     n_this_hr <-  dt[, .(g_n_this_hr = .N), abs_hr]
-    n_this_hr$g_hr_chg <- c(0, diff( n_this_hr$g_n_this_hr)) / n_this_hr$g_n_this_hr
-    n_this_hr$g_n_this_hr <- NULL
+    n_this_hr[, g_hr_chg := c(0, diff( g_n_this_hr)) / g_n_this_hr]
+    n_this_hr[, g_n_this_hr := NULL ]
     
     #JOIN n_this_hr to fea
     setkey(dt, abs_hr); setkey(n_this_hr, abs_hr); dt <- dt[n_this_hr]
@@ -70,12 +70,31 @@ global_features <- function(dt) {
     #dt$g_time_diff <- c(0, diff(dt$time))
     
     #remove time absolute time vars (except original)
-    dt$ltime <- NULL
+    dt[, ltime := NULL]
     
     return(dt)
 }
 
-create_features <- function(dt) {
+create_features_fast <- function(dt) {
+    # alters dt in the passing object.  use _safe version to avoid that
+    
+    if (! "place_id" %in% names(dt)) dt$place_id <- "TBD"
+    
+    n_this_hr <- dt[, .(n_this_hr = .N), abs_hr]
+    
+    setkey(dt, abs_hr); setkey(n_this_hr, abs_hr); dt <- dt[n_this_hr]
+    
+    setkey(dt, time)
+    dt[, time_diff := c(0, diff(time)) ]
+    dt[, time := NULL]
+    dt[, abs_hr := NULL]
+    
+    dt[, rat_hr_chg := n_this_hr * g_hr_chg]
+    
+    return(dt)
+}
+
+create_features_safe <- function(dt) {
     
     if (! "place_id" %in% names(dt)) dt$place_id <- "TBD"
     
@@ -92,6 +111,7 @@ create_features <- function(dt) {
     
     return(dt)
 }
+create_features <- create_features_safe
 
 top3_preds <- function (pred, place_ids) {
     predictions <- as.data.frame(matrix(pred, ncol=length(place_ids), byrow=TRUE ))
