@@ -10,8 +10,8 @@ if (! exists("train")) {
     load("~/GitHub/kaggle/Facebook_Checkins/data/train_w_global.RData")
 }
 
-train[ , hour_sin := sin(hour) * pi/24 ]
-train[ , hour_cos := cos(hour) * pi/24 ]
+train[ , hour_sin := sin(hour * pi/24) ]
+train[ , hour_cos := cos(hour * pi/24) ]
 train[ , hour_sincos := hour_sin * hour_cos ]
 train[ , accuracy := log10(accuracy)]
 
@@ -274,4 +274,139 @@ rm_idx <- c(rm_idx, which(fea_names == 'year'))
 knn_weights <- knn_weights_xgb[ -rm_idx]
 tcheck(desc='vga start grid 50x50 knn base - sans3')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
-# 0.4996068 0.0490644 [1] "311.940000 elapsed
+# 0.51154663 0.04746262 [1] "247.890000 elapsed  (checks out)
+
+train[ ,month := NULL ]
+test[ ,month := NULL ]
+rm_idx <- c(rm_idx, which(fea_names == 'month'))
+knn_weights <- knn_weights_xgb[ -rm_idx]
+tcheck(desc='vga start grid 50x50 knn sns3 - month')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.52388404 0.05180941 [1] "241.550000
+
+train[ ,hour_sincos := NULL ]
+test[ ,hour_sincos := NULL ]
+rm_idx <- c(rm_idx, which(fea_names == 'hour_sincos'))
+knn_weights <- knn_weights_xgb[ -rm_idx]
+tcheck(desc='vga start grid 50x50 knn sans4 - sincos')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.5220355 0.0529259 [1] "258.910000 elapsed
+
+train[ ,hour_sin := NULL ]
+test[ ,hour_sin := NULL ]
+rm_idx <- c(rm_idx, which(fea_names == 'hour_sin'))
+knn_weights <- knn_weights_xgb[ -rm_idx]
+tcheck(desc='vga start grid 50x50 knn sans5 - sin')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.51616076 0.05300311 [1] "250.140000
+
+# reset train
+# recalc xgb weights
+train[ ,rating_history := NULL ]
+test[ ,rating_history := NULL ]
+
+train[ ,hour_cos := NULL ]
+test[ ,hour_cos := NULL ]
+
+train[ ,year := NULL ]
+test[ ,year := NULL ]
+
+train[ ,month := NULL ]
+test[ ,month := NULL ]
+
+# hp_classify <- hp_classify_xgb_imp
+# tcheck(desc='vga start grid 50x50 xgb importance')
+# #[1] "217.540000 elapsed for vga start grid 50x50 xgb importance"
+# source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# ichunk, chunk_size, grid_nx, grid_ny: 1 10 50 50 
+# capturing xgb_importance a (be patient)...  
+# capturing xgb_importance a (be patient)...  
+# capturing xgb_importance a (be patient)...  
+# capturing xgb_importance a (be patient)...  
+# .capturing xgb_importance a (be patient)...  
+# capturing xgb_importance a (be patient)...  
+# capturing xgb_importance a (be patient)...  
+# capturing xgb_importance a (be patient)...  
+# capturing xgb_importance a (be patient)...  
+# .capturing xgb_importance a (be patient)...  
+# ...total elapsed = 2306.160000
+# [1] 0.53766370 0.05166226
+# [1] "2306.280000 elapsed for vga complete"
+# > 
+
+# 1                      y 0.460971279
+# 2                      x 0.233083074
+# 3               accuracy 0.052850552
+# 4                   hour 0.070733799
+# 5               hour_sin 0.037008454
+# 6                weekday 0.027843511
+# 7            hour_sincos 0.026524299
+# 8               g_hr_chg 0.019791895
+# 9                   mday 0.019624543
+# 10             time_diff 0.018984853
+# 11            rat_hr_chg 0.016377178
+# 12 quarter_period_of_day 0.009489949
+# 13             n_this_hr 0.006716613
+
+sorted_weights <- avg_gain$Gain
+names(sorted_weights) <- avg_gain$Feature
+fea_names <- names( create_features_safe(train[1:10]) %>% select( -c(row_id, place_id)))
+knn_weights_xgb <- rep(.0001, length(fea_names))
+names(knn_weights_xgb) <- as.character(fea_names)
+for (i in 1:length(fea_names))  knn_weights_xgb[i] <- sorted_weights[ fea_names[i] ] 
+
+# to reproduce
+# knn_weights_xgb <- c(0.233083074,0.460971279,0.052850552,0.070733799,0.027843511,
+# 0.019624543,0.009489949,0.019791895,0.037008454,0.026524299,0.006716613,0.018984853,0.016377178)
+
+hp_classify <- hp_classify_knn
+knn_weights <- knn_weights_xgb  
+tcheck(desc='vga start grid 50x50 knn sans4 - new xgb weights')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+#0.52419918 0.05223014 [1] "243.480000 elapsed  ## only minor (.001) improvement
+
+##
+##  Try copying features from best script
+##
+
+library(knnGarden)
+hp_classify_knng <- function(trn, val, min_occ=2, verbose=0, norm=knn_norm, w=knn_weights) {
+    #w is a constant or vector of length ncol(trn2)-2 to multiply features by
+    trn2 <- create_features(trn)
+    val2 <- create_features(val)
+    
+    places <- trn2 %>% count(place_id, sort=TRUE) %>% filter(n >= min_occ) %>% .[[1]]
+    trn2 <- trn2 %>% filter(place_id %in% places)
+    trn2.place_id <- as.factor(trn2$place_id)
+    
+    if (norm) {
+        trn2 <- apply( trn2 %>% select(-c(row_id, place_id)), 2 , normalize)
+        val2 <- apply( val2 %>% select(-c(row_id, place_id)), 2 , normalize)
+        
+        constants <- c( which( is.nan(trn2[1, ])), which( is.nan(val2[1, ])) ) %>% unique
+        if (length(constants > 0)) {
+            trn2 <- trn2[, -constants]
+            val2 <- val2[, -constants]
+            w    <- w   [  -constants]
+        }
+    } else {
+        trn2 <- apply( trn2 %>% select(-c(row_id, place_id)), 2 , identity)
+        val2 <- apply( val2 %>% select(-c(row_id, place_id)), 2 , identity)
+    }
+    
+    knn_fit <- knnVCN( t(t( trn2 ) * w),  #TrnX
+                       trn2.place_id, #OrigTrng
+                       t(t( val2 ) * w),  #TstX
+                       K = knn_k,
+                       method = "manhattan")
+    top3_places <- apply(attr(knn_fit,'nn.index'), 1, top3_knn, trn2.place_id ) %>% t() %>% as.data.frame %>% tbl_df()
+    top3_probs  <- apply(attr(knn_fit,'nn.index'), 1, top3_knn, trn2.place_id, prob=TRUE ) %>% t() %>% as.data.frame %>% tbl_df()
+    
+    preds <- val %>% select( row_id, truth=place_id)
+    preds$predictions <- with(top3_places, paste(V1,V2,V3))
+    names(top3_probs) <- c('X1', 'X2', 'X3')
+    preds <- cbind(preds, top3_probs)
+    
+    return(preds)
+}
+hp_classify <- hp_classify_knng
