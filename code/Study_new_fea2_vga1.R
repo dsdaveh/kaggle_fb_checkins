@@ -43,12 +43,13 @@ chunk_size = 25
 grid_nx = 100
 grid_ny = 100 ;tcheck(desc='vga start grid 100x100')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
-#..[1] 0.54046043 0.04439034 [1] "423.030000 elapsed for vga complete" (fixed error)
 est_time <- ( (diff(tcheck.df$elapsed) %>% tail(1)) * grid_nx * grid_ny / chunk_size ) / 3600.  # 21.6
 # [1] 0.53622982 0.08620633 [1] "194.590000 elapsed for vga complete"
 
-train$hour_sin <- sin(train$hour * pi/24)
-test$hour_sin <- sin(test$hour * pi/24)
+# train$hour_sin <- sin(train$hour * pi/24)
+# test$hour_sin <- sin(test$hour * pi/24)
+train[ , hour_sin := sin(hour * pi/24) ]
+test[ , hour_sin := sin(hour * pi/24) ]
 
 chunk_size = 25
 grid_nx = 100

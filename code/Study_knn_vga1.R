@@ -10,6 +10,11 @@ if (! exists("train")) {
     load("~/GitHub/kaggle/Facebook_Checkins/data/train_w_global.RData")
 }
 
+train[ , hour_sin := sin(hour) * pi/24 ]
+train[ , hour_cos := cos(hour) * pi/24 ]
+train[ , hour_sincos := hour_sin * hour_cos ]
+train[ , accuracy := log10(accuracy)]
+
 setorder(train, time)
 train_cut_ix <- as.integer(nrow(train) * .80)
 test <- train[(train_cut_ix+1):nrow(train), ]
@@ -141,17 +146,6 @@ hp_classify_xgb_imp <- function(trn, val, min_occ=2, verbose=0, importance = TRU
     
     return(preds)
 }
-train[, hour_sin := sin(hour) * pi/24 ]
-test[, hour_sin := sin(hour) * pi/24 ]
-
-train[, hour_cos := cos(hour) * pi/24 ]
-test[, hour_cos := cos(hour) * pi/24 ]
-
-train[, hour_sincos := hour_sin * hour_cos ]
-test[, hour_sincos := hour_sin * hour_cos ]
-
-train[ , accuracy := log10(accuracy)]
-test[ , accuracy := log10(accuracy)]
 
 ### Baseline runs
 chunk_size = 10
@@ -252,7 +246,32 @@ knn_weights_xgb <- c(0.223796547, 0.448362679, 0.047252332, 0.066934625, 0.02492
                  0.040894129, 0.012640366, 0.009145116, .0001, 0.014285368, 0.035452052, .0001, 
                  0.025322823, 0.005309761, 0.015801287, 0.015801287)
 knn_k = 25
-knn_norm = FALSE
+knn_norm = TRUE
 chunk_size = 10
 grid_nx = 50
 grid_ny = 50 
+min_occ = 10
+
+fea_names <- names( create_features_safe(train[1:10]) %>% select( -c(row_id, place_id)))
+rm_idx <- integer()
+
+train[ ,rating_history := NULL ]
+test[ ,rating_history := NULL ]
+rm_idx <- c(rm_idx, which(fea_names == 'rating_history'))
+# no need to run, since this weight was set to .0001
+
+train[ ,hour_cos := NULL ]
+test[ ,hour_cos := NULL ]
+rm_idx <- c(rm_idx, which(fea_names == 'hour_cos'))
+# no need to run, since this weight was set to .0001
+
+train[ ,year := NULL ]
+test[ ,year := NULL ]
+rm_idx <- c(rm_idx, which(fea_names == 'year'))
+# no need to run, since year is constant in test and gets auto removed
+
+# but lets run it anyway to validate we're getting the same score as our baseline
+knn_weights <- knn_weights_xgb[ -rm_idx]
+tcheck(desc='vga start grid 50x50 knn base - sans3')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.4996068 0.0490644 [1] "311.940000 elapsed
