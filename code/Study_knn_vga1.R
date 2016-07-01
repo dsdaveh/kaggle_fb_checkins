@@ -6,8 +6,8 @@ tcheck(0)
 
 ## load data  (allow for pre-loaded subsets)
 if (! exists("train")) {
-    #train <- fread('../input/train.csv', integer64='character') %>% global_features() tcheck(desc='build train w global features')
-    load("~/GitHub/kaggle/Facebook_Checkins/data/train_w_global.RData")
+    #train <- fread('../input/train.csv', integer64='character') %>% global_features(); tcheck(desc='build train w global features')
+    load("../data/train_w_global.RData")
 }
 
 train[ , hour_sin := sin(hour * pi/24) ]
@@ -71,6 +71,7 @@ hp_classify_knn <- function(trn, val, min_occ=2, verbose=0, norm=knn_norm, w=knn
                     t(t( val2 ) * w),  #test
                     trn2.place_id, #cl
                     k = knn_k )
+
     top3_places <- apply(attr(knn_fit,'nn.index'), 1, top3_knn, trn2.place_id ) %>% t() %>% as.data.frame %>% tbl_df()
     top3_probs  <- apply(attr(knn_fit,'nn.index'), 1, top3_knn, trn2.place_id, prob=TRUE ) %>% t() %>% as.data.frame %>% tbl_df()
     
@@ -111,6 +112,53 @@ hp_classify_knn <- function(trn, val, min_occ=2, verbose=0, norm=knn_norm, w=knn
     return(preds)
 }
 hp_classify <- hp_classify_knn
+
+knn_probs <- TRUE
+hp_classify_knn_RANN <- function(trn, val, min_occ=2, verbose=0, norm=knn_norm, w=knn_weights) {
+    # uses RANN.L1::nn (manhattan distance)
+    #w is a constant or vector of length ncol(trn2)-2 to multiply features by
+    trn2 <- create_features(trn)
+    val2 <- create_features(val)
+    
+    places <- trn2 %>% count(place_id, sort=TRUE) %>% filter(n >= min_occ) %>% .[[1]]
+    trn2 <- trn2 %>% filter(place_id %in% places)
+    trn2.place_id <- as.factor(trn2$place_id)
+    
+    if (norm) {
+        trn2 <- apply( trn2 %>% select(-c(row_id, place_id)), 2 , normalize)
+        val2 <- apply( val2 %>% select(-c(row_id, place_id)), 2 , normalize)
+        
+        constants <- c( which( is.nan(trn2[1, ])), which( is.nan(val2[1, ])) ) %>% unique
+        if (length(constants > 0)) {
+            trn2 <- trn2[, -constants]
+            val2 <- val2[, -constants]
+            w    <- w   [  -constants]
+        }
+    } else {
+        trn2 <- apply( trn2 %>% select(-c(row_id, place_id)), 2 , identity)
+        val2 <- apply( val2 %>% select(-c(row_id, place_id)), 2 , identity)
+    }
+    
+    #RANN.L1  (manhattan distances)
+    nn <- nn2( t(t( trn2 ) * w),  #train
+               t(t( val2 ) * w),  #test
+               k = knn_k )
+    
+    top3_places <- apply(nn$nn.idx, 1, top3_knn, trn2.place_id ) %>% t() %>% as.data.frame %>% tbl_df()
+    
+    preds <- val %>% select( row_id, truth=place_id)
+    preds$predictions <- with(top3_places, paste(V1,V2,V3))
+    
+    if (knn_probs == TRUE) {
+        top3_probs  <- apply(nn$nn.idx, 1, top3_knn, trn2.place_id, prob=TRUE ) %>% t() %>% as.data.frame %>% tbl_df()
+        names(top3_probs) <- c('X1', 'X2', 'X3')
+        preds <- cbind(preds, top3_probs)
+    }
+    
+    return(preds)
+}
+hp_classify <- hp_classify_knn_RANN
+
 
 # copy function locally in order to set importance = TRUE
 xgb_importance <- list()
@@ -365,48 +413,20 @@ tcheck(desc='vga start grid 50x50 knn sans4 - new xgb weights')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
 #0.52419918 0.05223014 [1] "243.480000 elapsed  ## only minor (.001) improvement
 
+
+### Try other KNN packages:
+hp_classify <- hp_classify_knn_RANN
+tcheck(desc='vga start grid 50x50 knn RANN.L1')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.53048021 0.05183368 [1] "444.100000 elapsed
+knn_probs <- FALSE
+tcheck(desc='vga start grid 50x50 knn RANN.L1 noprobs')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+#0.53048021 0.05183368 [1] "232.670000 elapsed
+
+
+
 ##
 ##  Try copying features from best script
 ##
 
-library(knnGarden)
-hp_classify_knng <- function(trn, val, min_occ=2, verbose=0, norm=knn_norm, w=knn_weights) {
-    #w is a constant or vector of length ncol(trn2)-2 to multiply features by
-    trn2 <- create_features(trn)
-    val2 <- create_features(val)
-    
-    places <- trn2 %>% count(place_id, sort=TRUE) %>% filter(n >= min_occ) %>% .[[1]]
-    trn2 <- trn2 %>% filter(place_id %in% places)
-    trn2.place_id <- as.factor(trn2$place_id)
-    
-    if (norm) {
-        trn2 <- apply( trn2 %>% select(-c(row_id, place_id)), 2 , normalize)
-        val2 <- apply( val2 %>% select(-c(row_id, place_id)), 2 , normalize)
-        
-        constants <- c( which( is.nan(trn2[1, ])), which( is.nan(val2[1, ])) ) %>% unique
-        if (length(constants > 0)) {
-            trn2 <- trn2[, -constants]
-            val2 <- val2[, -constants]
-            w    <- w   [  -constants]
-        }
-    } else {
-        trn2 <- apply( trn2 %>% select(-c(row_id, place_id)), 2 , identity)
-        val2 <- apply( val2 %>% select(-c(row_id, place_id)), 2 , identity)
-    }
-    
-    knn_fit <- knnVCN( t(t( trn2 ) * w),  #TrnX
-                       trn2.place_id, #OrigTrng
-                       t(t( val2 ) * w),  #TstX
-                       K = knn_k,
-                       method = "manhattan")
-    top3_places <- apply(attr(knn_fit,'nn.index'), 1, top3_knn, trn2.place_id ) %>% t() %>% as.data.frame %>% tbl_df()
-    top3_probs  <- apply(attr(knn_fit,'nn.index'), 1, top3_knn, trn2.place_id, prob=TRUE ) %>% t() %>% as.data.frame %>% tbl_df()
-    
-    preds <- val %>% select( row_id, truth=place_id)
-    preds$predictions <- with(top3_places, paste(V1,V2,V3))
-    names(top3_probs) <- c('X1', 'X2', 'X3')
-    preds <- cbind(preds, top3_probs)
-    
-    return(preds)
-}
-hp_classify <- hp_classify_knng
