@@ -424,9 +424,28 @@ tcheck(desc='vga start grid 50x50 knn RANN.L1 noprobs')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
 #0.53048021 0.05183368 [1] "232.670000 elapsed
 
+knn_k = 20
+tcheck(desc='vga start grid 50x50 knn RANN.L1 noprobs k=20')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.53096094 0.05020235 [1] "238.020000 elapsed
+knn_k = 30
+tcheck(desc='vga start grid 50x50 knn RANN.L1 noprobs k=30')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.53113145 0.05173669 [1] "234.760000 elapsed
 
+chunk_size = 25
+grid_nx = 100
+grid_ny = 100 
+tcheck(desc='vga start grid 100x100 knn RANN.L1 noprobs k=30')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.51216749 0.08820987 [1] "227.940000 elapsed
 
-##
-##  Try copying features from best script
-##
-
+chunk_size = 10
+grid_nx = 50
+grid_ny = 50
+train[ , hour_cos := cos(hour * pi/24) ]
+test[ , hour_cos := cos(hour * pi/24) ]
+train[ ,hour_sincos := NULL ]
+test[ ,hour_sincos := NULL ]
+tcheck(desc='vga start grid 50x50 knn RANN.L1 k=30 swap cos')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
