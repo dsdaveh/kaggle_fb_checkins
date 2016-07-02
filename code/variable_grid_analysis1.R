@@ -44,6 +44,7 @@ if (! exists("chunk_size")) chunk_size = 10
 if (! exists("grid_nx")) grid_nx = 50
 if (! exists("grid_ny")) grid_ny = 50
 if (! exists("min_occ")) min_occ = 10
+if (! exists("expand_margin")) expand_margin = 0.00 
 
 set.seed(48)
 h_scramble <- expand.grid( x=1:grid_nx, y=1:grid_ny) %>% sample_frac(size=1)
@@ -68,8 +69,10 @@ t0 <- proc.time()
 i=j=1
 for (i in 1:nrow(grpx)) {
     xmin <- (chunk[ih+1, ]$x - 1) / gx_scale
-    trnx <- train %>% filter( x >= xmin, x <= xmin + 1./gx_scale )
-    tstx <- test %>% filter( x >= xmin, x <= xmin + 1./gx_scale )
+    xmax <- xmin + 1./gx_scale
+    xeps <- expand_margin * ( xmax - xmin )
+    trnx <- train %>% filter( x >= xmin - xeps, x <= xmax + xeps )
+    tstx <- test %>% filter( x >= xmin, x <= xmax )
     
     ny <- grpx[i, ]$n
     ncum <- ncum + ny
@@ -81,9 +84,11 @@ for (i in 1:nrow(grpx)) {
         if(ih %% 100 == 0) cat( sprintf('  elapsed=%f\n', (tx-t0)[3]))
 
         ymin <- (chunk[ih, ]$y - 1) / gy_scale
-         with(chunk[ih, ], { rect(x-1, y-1, x, y, col="green") } )
-        trn <- trnx %>% filter( y >= ymin, y <= ymin + 1./gy_scale )
-        tst <- tstx %>% filter( y >= ymin, y <= ymin + 1./gy_scale )
+        ymax <- ymin + 1./gy_scale
+        yeps <- expand_margin * ( ymax - ymin )
+        with(chunk[ih, ], { rect(x-1, y-1, x, y, col="green") } )
+        trn <- trnx %>% filter( y >= ymin - yeps, y <= ymin + 1./gy_scale )
+        tst <- tstx %>% filter( y >= ymin, y <= ymax )
         
         ## xgb classifier
         if (! exists("xgb_nrounds")) xgb_nrounds <- 50 #   
