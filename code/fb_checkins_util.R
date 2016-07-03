@@ -3,6 +3,7 @@ library(dplyr)
 library(tidyr)
 library(data.table)
 library(lubridate)
+library(RANN.L1)
 
 EOL = "\n"
 
@@ -40,6 +41,71 @@ hp_classify_xgb <- function(trn, val, min_occ=2, verbose=0, importance = FALSE) 
                               top3[4:6]) )
     
     return(preds)
+}
+
+if( ! exists("knn_probs")) knn_probs <- TRUE
+if( ! exists("knn_norm")) knn_norm = FALSE
+if( ! exists("knn_weights")) knn_weights = 1
+if( ! exists("knn_k")) knn_k = 25
+hp_classify_knn_RANN <- function(trn, val, min_occ=2, verbose=0, norm=knn_norm, w=knn_weights) {
+    # uses RANN.L1::nn (manhattan distance)
+    #w is a constant or vector of length ncol(trn2)-2 to multiply features by
+    trn2 <- create_features(trn)
+    val2 <- create_features(val)
+    
+    places <- trn2 %>% count(place_id, sort=TRUE) %>% filter(n >= min_occ) %>% .[[1]]
+    trn2 <- trn2 %>% filter(place_id %in% places)
+    trn2.place_id <- as.factor(trn2$place_id)
+    
+    if (norm) {
+        trn2 <- apply( trn2 %>% select(-c(row_id, place_id)), 2 , normalize)
+        val2 <- apply( val2 %>% select(-c(row_id, place_id)), 2 , normalize)
+        
+        constants <- c( which( is.nan(trn2[1, ])), which( is.nan(val2[1, ])) ) %>% unique
+        if (length(constants > 0)) {
+            trn2 <- trn2[, -constants]
+            val2 <- val2[, -constants]
+            w    <- w   [  -constants]
+        }
+    } else {
+        trn2 <- apply( trn2 %>% select(-c(row_id, place_id)), 2 , identity)
+        val2 <- apply( val2 %>% select(-c(row_id, place_id)), 2 , identity)
+    }
+    
+    #RANN.L1  (manhattan distances)
+    nn <- nn2( t(t( trn2 ) * w),  #train
+               t(t( val2 ) * w),  #test
+               k = knn_k )
+    
+    top3_places <- apply(nn$nn.idx, 1, top3_knn, trn2.place_id ) %>% t() %>% as.data.frame %>% tbl_df()
+    
+    preds <- val %>% select( row_id, truth=place_id)
+    preds$predictions <- with(top3_places, paste(V1,V2,V3))
+    
+    if (knn_probs == TRUE) {
+        top3_probs  <- apply(nn$nn.idx, 1, top3_knn, trn2.place_id, prob=TRUE ) %>% t() %>% as.data.frame %>% tbl_df()
+        names(top3_probs) <- c('X1', 'X2', 'X3')
+        preds <- cbind(preds, top3_probs)
+    }
+    
+    return(preds)
+}
+
+top3_knn <- function( nn.index.row, place_ids, prob=FALSE ) {
+    top3_places <- data.frame( place_id = place_ids[ nn.index.row ]) %>% 
+        count(place_id, sort=TRUE) %>% 
+        mutate( prob = n/sum(n)) %>% 
+        dplyr::slice(1:3)
+    if (prob) {
+        out <- top3_places$prob
+    } else {
+        out <- top3_places$place_id %>% as.character()
+    }
+    if ( length(out) < 3) {
+        fill = ifelse( prob, 0, levels(place_ids)[1])
+        out <- c(out, rep(fill, 3 - length(out)))
+    }
+    return(out)
 }
 
 

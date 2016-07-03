@@ -77,8 +77,9 @@ for (i in 1:nrow(grpx)) {
     ny <- grpx[i, ]$n
     ncum <- ncum + ny
     for(j in 1:ny){
+        grid <- data.frame( grid_x = chunk[ih+1, ]$x,  grid_y = chunk[ih+1, ]$y)
         ih <- ih + 1
-        
+    
         tx <- proc.time()
         if(ih %% 5 == 0) cat('.') 
         if(ih %% 100 == 0) cat( sprintf('  elapsed=%f\n', (tx-t0)[3]))
@@ -96,7 +97,7 @@ for (i in 1:nrow(grpx)) {
         preds <- hp_classify( trn, tst, min_occ = min_occ, verbose=verbose) %>% data.table()
         #xgb_preds$truth <- NULL
  
-        hp_results <- rbind( hp_results, preds) 
+        hp_results <- rbind( hp_results, cbind(preds, grid) )
         
         if (test$place_id[1] != "TBD") chunk[ih,"score"] <- calculate_map_score( preds )
     }

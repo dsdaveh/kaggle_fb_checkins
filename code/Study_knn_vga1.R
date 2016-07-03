@@ -113,6 +113,7 @@ hp_classify_knn <- function(trn, val, min_occ=2, verbose=0, norm=knn_norm, w=knn
 }
 hp_classify <- hp_classify_knn
 
+library(RANN.L1)
 knn_probs <- TRUE
 hp_classify_knn_RANN <- function(trn, val, min_occ=2, verbose=0, norm=knn_norm, w=knn_weights) {
     # uses RANN.L1::nn (manhattan distance)
@@ -350,6 +351,8 @@ source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
 
 # reset train
 # recalc xgb weights
+fea_names <- names( create_features_safe(train[1:10]) %>% select( -c(row_id, place_id)))
+
 train[ ,rating_history := NULL ]
 test[ ,rating_history := NULL ]
 
@@ -404,10 +407,11 @@ names(knn_weights_xgb) <- as.character(fea_names)
 for (i in 1:length(fea_names))  knn_weights_xgb[i] <- sorted_weights[ fea_names[i] ] 
 
 # to reproduce
-# knn_weights_xgb <- c(0.233083074,0.460971279,0.052850552,0.070733799,0.027843511,
-# 0.019624543,0.009489949,0.019791895,0.037008454,0.026524299,0.006716613,0.018984853,0.016377178)
+knn_weights_xgb <- c(0.233083074,0.460971279,0.052850552,0.070733799,0.027843511,
+0.019624543,0.009489949,0.019791895,0.037008454,0.026524299,0.006716613,0.018984853,0.016377178)
 
 hp_classify <- hp_classify_knn
+knn_norm = TRUE
 knn_weights <- knn_weights_xgb  
 tcheck(desc='vga start grid 50x50 knn sans4 - new xgb weights')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
@@ -418,34 +422,163 @@ source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
 hp_classify <- hp_classify_knn_RANN
 tcheck(desc='vga start grid 50x50 knn RANN.L1')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
-# 0.53048021 0.05183368 [1] "444.100000 elapsed
+# 0.53048021 0.05183368 [1] "444.100000 elapsed (laptop)
 knn_probs <- FALSE
 tcheck(desc='vga start grid 50x50 knn RANN.L1 noprobs')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
-#0.53048021 0.05183368 [1] "232.670000 elapsed
+# 0.53048021 0.05183368 [1] "232.670000 elapsed (laptop)
+# 0.53048021 0.05183368 [1] "125.720000 elapsed
 
 knn_k = 20
-tcheck(desc='vga start grid 50x50 knn RANN.L1 noprobs k=20')
+tcheck(desc='vga start grid 50x50 knn RANN.L1 noprobs k=20') 
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
-# 0.53096094 0.05020235 [1] "238.020000 elapsed
+# 0.53096094 0.05020235 [1] "238.020000 elapsed (laptop)
 knn_k = 30
 tcheck(desc='vga start grid 50x50 knn RANN.L1 noprobs k=30')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
-# 0.53113145 0.05173669 [1] "234.760000 elapsed
+# 0.53113145 0.05173669 [1] "234.760000 elapsed (laptop)
+
+# k_vals <- numeric();    tcheck(desc='start K sensitivity study')
+# knn_probs = FALSE
+# for (knn_k in seq(10,50,5)) {
+#     source('variable_grid_analysis1.R'); tcheck(desc=sprintf('knn k=%d complete', knn_k))
+#     k_vals <- c(k_vals, mean(chunk$score))
+# }
 
 chunk_size = 25
 grid_nx = 100
 grid_ny = 100 
 tcheck(desc='vga start grid 100x100 knn RANN.L1 noprobs k=30')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
-# 0.51216749 0.08820987 [1] "227.940000 elapsed
+# 0.51216749 0.08820987 [1] "227.940000 elapsed (laptop)
 
 chunk_size = 10
+knn_k = 30
 grid_nx = 50
 grid_ny = 50
-train[ , hour_cos := cos(hour * pi/24) ]
-test[ , hour_cos := cos(hour * pi/24) ]
-train[ ,hour_sincos := NULL ]
-test[ ,hour_sincos := NULL ]
-tcheck(desc='vga start grid 50x50 knn RANN.L1 k=30 swap cos')
+knn_norm = TRUE
+knn_weights <- knn_weights_xgb  
+knn_probs = FALSE
+hp_classify <- hp_classify_knn_RANN
+tcheck(desc='vga start grid 50x50 RANN baseline')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.53113145 0.05173669 [1] "127.150000 elapsed 
+
+##
+## play with grid margins 
+##
+expand_margin <- 0.0   #test new parameter
+tcheck(desc='vga start grid 50x50 RANN baseline')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.53113145 0.05173669 [1] "127.150000 elapsed   #validation okay
+
+expand_margin <- 0.03   #test new parameter
+tcheck(desc='vga start grid 50x50 RANN mar=.03')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.52905775 0.05170582 [1] "127.630000
+
+expand_margin <- 0.01   #test new parameter
+tcheck(desc='vga start grid 50x50 RANN mar=.01')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.53123873 0.05208166 [1] "127.720000 elapsed
+
+expand_margin <- 0.005   #test new parameter
+tcheck(desc='vga start grid 50x50 RANN mar=.005')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.53124656 0.05166494 [1] "127.750000
+
+##
+## play with other cyclic features
+##
+
+expand_margin <- 0.005   
+
+# save(train, file='tmp_train.RData') # load(file='tmp_train.RData')
+# save(test, file='tmp_test.RData') # load(file='tmp_test.RData')
+
+#recalc xgb baseline for the current feature set
+hp_classify <- hp_classify_xgb
+tcheck(desc='vga start grid 50x50 xgb')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.54083016 0.05065228 [1] "437.880000 elapsed  #better (because of margin?)
+
+train[ , wday_sin := sin(weekday * pi/7) ]
+train[ , wday_sincos := wday_sin * cos(weekday * pi/7) ]
+test[ , wday_sin := sin(weekday * pi/7) ]
+test[ , wday_sincos := wday_sin * cos(weekday * pi/7) ]
+
+tcheck(desc='vga start grid 50x50 xgb wday_cycle')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.51677702 0.05233455 [1] "433.430000
+
+train[ , mday_sin := sin(mday * pi/30.4) ]
+train[ , mday_sincos := mday_sin * cos(mday * pi/30.4) ]
+test[ , mday_sin := sin(mday * pi/30.4) ]
+test[ , mday_sincos := mday_sin * cos(mday * pi/30.4) ]
+
+tcheck(desc='vga start grid 50x50 xgb mday_cycle')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.51490382 0.05402975 [1] "438.270000 elapsed
+
+##
+## doesn't look like anything here, but let's still try KNN
+## 
+
+hp_classify <- hp_classify_xgb_imp
+tcheck(desc='vga start grid 50x50 xgb importance')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.51490382 0.05402975 [1] "2516.720000 elapsed
+
+impdf <- data.frame()
+for (i in 1:length(xgb_importance)) impdf <- rbind(impdf, xgb_importance[[i]] %>% mutate(cell=i))
+
+imp_order <- impdf %>% group_by(Feature) %>% summarize(Gain = mean(Gain)) %>% arrange(Gain) %>% .[[1]]
+impdf %>% 
+    ggplot(aes(Feature, Gain)) + 
+    geom_bar( data=impdf %>% mutate(Gain=Gain/length(xgb_importance)), stat="identity") +
+    geom_bar( stat="identity", position="dodge", aes(fill=as.factor(cell))) + 
+    scale_x_discrete(limits = imp_order) +
+    coord_flip() 
+
+avg_gain <- impdf %>% group_by(Feature) %>% summarize(Gain=mean(Gain))
+
+# Feature        Gain
+# (chr)       (dbl)
+# 1                      y 0.454647335
+# 2                      x 0.230575659
+# 3               accuracy 0.050112221
+# 4                   hour 0.069077904
+# 5               hour_sin 0.036387508
+# 6            hour_sincos 0.026235664
+# 7               g_hr_chg 0.018093532
+# 8              time_diff 0.017183815
+# 9                weekday 0.015476785
+# 10            rat_hr_chg 0.014478057
+# 11              mday_sin 0.011925039
+# 12           mday_sincos 0.011212489
+# 13                  mday 0.010118533
+# 14              wday_sin 0.008890569
+# 15           wday_sincos 0.010611697
+# 16 quarter_period_of_day 0.009413032
+# 17             n_this_hr 0.005560162
+
+sorted_weights <- avg_gain$Gain
+names(sorted_weights) <- avg_gain$Feature
+fea_names <- names( create_features_safe(train[1:10]) %>% select( -c(row_id, place_id)))
+knn_weights_xgb <- rep(.0001, length(fea_names))
+names(knn_weights_xgb) <- as.character(fea_names)
+for (i in 1:length(fea_names))  knn_weights_xgb[i] <- sorted_weights[ fea_names[i] ] 
+
+# to reproduce
+knn_weights_xgb <- c( 0.230575659, 0.454647335, 0.050112221, 0.069077904, 0.015476785, 0.010118533,
+                      0.009413032, 0.018093532, 0.036387508, 0.026235664, 0.008890569, 0.010611697, 
+                      0.011925039, 0.011212489, 0.005560162, 0.017183815, 0.014478057) 
+names(knn_weights_xgb) <- names( create_features_safe(train[1:10]) %>% select( -c(row_id, place_id)))
+
+hp_classify <- hp_classify_knn_RANN
+knn_weights <- knn_weights_xgb
+expand_margin <- 0.005   
+tcheck(desc='vga start grid 50x50 knn w/ xgb weights')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.53237803 0.05106406 [1] "132.990000 elapsed
+
