@@ -1,0 +1,162 @@
+library(ggvis)
+
+possible <- unique(train$place_id )
+
+cell_results <- function( results, xloc, yloc ) {
+    cell <- results %>% filter( grid_x == xloc, grid_y == yloc )
+    cell[ , top3 := str_split(predictions, " ")] 
+    cell[ , score:= 0 ]
+    cell[ , correct:= 0 ]
+    for (i in 1:nrow(cell)) { 
+        correct <- which( unlist(cell[i,top3]) == cell[i,truth] )
+        cell$correct[i] <- ifelse(length(correct > 0), correct, 0)
+        cell$score[i] <- ifelse( cell$correct[i] == 0, 0, 1 / cell$correct[i])
+    }
+    tcheck(desc='score')
+    setkey(cell, row_id) 
+    return(cell)
+}
+
+tcheck(0)
+cell <- cell_results( hp_results_xgb, 7, 1)
+names(cell) <- c('row_id', 'truth', paste0("xgb.", names(cell)[-(1:2)]))
+cell_knn <- cell_results( hp_results_knn, 7, 1)
+names(cell_knn) <- c('row_id', 'rm.truth', paste0("knn.", names(cell_knn)[-(1:2)]))
+cell <- cell[cell_knn][, rm.truth := NULL]
+
+setkey(test, row_id)
+cell <- test[cell, nomatch=0]
+
+cell %>% filter (xgb.score > knn.score) %>% count(xgb.correct)
+cell %>% filter (xgb.score < knn.score) %>% count(knn.correct)
+
+    
+# this is interesting, but a bit of a diversion... we're supposed to be ensembling
+# TODO color by distance from correct answer
+# places <- unique(cell$place_id)
+# no_chance <- places[ ! places %in% possible]
+# cell %>% ggvis(~x,~y) %>% layer_points( fill = ~as.factor(correct), opacity := 0.5)
+# cell %>% mutate(acc = 10^accuracy) %>% 
+#     ggvis(~x,~y) %>% layer_points( fill = ~score, opacity := 0.5, size = ~acc )
+
+wrong_knn$model = "KNN"
+wrong_xgb$model = "XGB"
+wrong <- rbind(wrong_knn, wrong_xgb)
+wrong %>%
+    ggvis(~x,~y) %>% layer_points( fill = ~as.factor(model), opacity := 0.7)
+
+cell_knn$model = 'KNN'
+cell_xgb$model = 'XGB'
+cell_knn$both_correct = cell_knn$correct == 1 & cell_xgb$correct == 1 
+cell_xgb$both_correct = cell_knn$both_correct
+cell_knn %>% filter(both_correct == FALSE) %>% count(correct)
+cell_xgb %>% filter(both_correct == FALSE) %>% count(correct)
+cell_disagree %>% 
+ggvis(~x,~y) %>% layer_points( fill = ~as.factor(correct), opacity := 0.5)
+
+#how do we correlate score and certainty
+cor(cell_knn$score, cell_knn$X1)
+cor(cell_xgb$score, cell_xgb$X1)
+
+xgb_wins <- cell_xgb$score > cell_knn$score  #237
+knn_wins <- cell_xgb$score < cell_knn$score  #135
+
+#winning model confidence is higher
+xgb_surity <- xgb_wins & xgb_
+
+
+### scratch2
+cell <- cell_results( hp_results_knn.k10, 7, 1)
+names(cell) <- c('row_id', 'truth', paste0("k10.", names(cell)[-(1:2)]))
+cell2 <- cell_results( hp_results_knn.k20, 7, 1)
+names(cell2) <- c('row_id', 'rm.truth', paste0("k20.", names(cell2)[-(1:2)]))
+cell <- cell[cell2][, rm.truth := NULL]
+cell2 <- cell_results( hp_results_knn.k40, 7, 1)
+names(cell2) <- c('row_id', 'rm.truth', paste0("k40.", names(cell2)[-(1:2)]))
+cell <- cell[cell2][, rm.truth := NULL]
+cor(cell$k10.score, cell$k20.score) # 0.9395492
+cor(cell$k40.score, cell$k20.score) # 0.9623189
+cor(cell$k40.score, cell$k10.score) # 0.9172392
+
+cell %>% filter (k20.score > k10.score) %>% count(k20.correct)
+cell %>% filter (k20.score < k10.score) %>% count(k10.correct)
+cell %>% filter (k20.score > k40.score) %>% count(k20.correct)
+cell %>% filter (k20.score < k40.score) %>% count(k40.correct)
+
+cell <- cell %>% mutate( knn3.score = k10.score + k20.score + k40.score )
+cell %>% count(knn3.score) %>% arrange( desc(knn3.score))
+
+setkey(test, row_id)
+cell <- test[cell, nomatch=0]
+
+
+#look at all the cases where score = 2
+twos <- cell %>% filter(knn3.score == 2)
+#how many are  1 + 1 (good) versus 1 + .5 + .5 (bad)
+twos <- twos %>% mutate( good = k10.correct + k20.correct + k40.correct <= 2)
+twos %>%
+    ggvis(~x,~y) %>% layer_points( fill = ~as.factor(good), opacity := 0.5)
+
+#score each model for just these 3
+mean(twos$k10.score) # 0.7457627
+mean(twos$k20.score) # 0.6101695   #interesting that this was our 'optimum, but the worst here'
+mean(twos$k40.score) # 0.6440678
+
+ensemble_method1 <- function(pred3s_df) {
+    #pred3s_df = data_frame each column is a vector containing 3 predictions for a model
+    pred3s_df <- data.frame(pred3s_df)
+    
+    out <- data.frame()
+    for (i in 1:nrow(pred3s_df)) {
+        candidates <- data.frame()
+        for(j in 1:ncol(pred3s_df)) {
+            candidates <- rbind(candidates, 
+                                data.frame( pred=unlist(pred3s_df[i,j]), rank=3:1, stringsAsFactors = FALSE))
+        }
+        ranks <- candidates %>% group_by(pred) %>% summarise(votes = sum(rank)) %>%
+            mutate( probs = votes / sum(votes)) %>%
+            arrange( desc(votes)) 
+        pred.mat <- matrix( ranks[1:3, "pred"])
+        probs.mat <- matrix( ranks[1:3, "probs"])
+        out <- rbind(out, data.frame( top3 = pred.mat, probs = probs.mat ))
+    }
+    return(out)
+}
+
+ensm1 <- ensemble_method1( twos %>% select( k10.top3, k20.top3, k40.top3 ))
+ensm1$predictions <- lapply( ensm1$top3, paste, collapse=' ' )
+ensm1$truth <- twos$truth
+calculate_map_score( ensm1 ) # 0.5847458  ... worse than all 3 :(
+
+# What about overall?
+mean(cell$k10.score) # 0.5544794
+mean(cell$k20.score) # 0.5631961
+mean(cell$k40.score) # 0.5661824  #note again k20 is not higher
+
+score_ensembles <- function( rdf, truth ) {
+    #rdf  = results data.frame: cell %>% select( k10.top3, k20.top3, k40.top3 )
+    ensm1 <- ensemble_method1( rdf ) 
+    ensm1$predictions <- lapply( ensm1$top3, paste, collapse=' ' )
+    ensm1$truth <- truth
+    calculate_map_score( ensm1 ) 
+}
+ensm1 <- ensemble_method1( cell %>% select( k10.top3, k20.top3, k40.top3 )) ; tcheck(desc='done ensemble')
+ensm1$predictions <- lapply( ensm1$top3, paste, collapse=' ' )
+ensm1$truth <- cell$truth
+
+score_ensembles( cell %>% select( k10.top3, k20.top3, k40.top3), cell$truth ) # 0.5601291  ... meh
+
+## lets add xgb to the mix
+cell2 <- cell_results( hp_results_xgb, 7, 1)
+names(cell2) <- c('row_id', 'rm.truth', paste0("xgb.", names(cell2)[-(1:2)]))
+cell <- cell[cell2][, rm.truth := NULL]
+cor(cell$xgb.score, cell$k20.score) # 0.8896491
+mean(cell$xgb.score) # 0.5881356
+
+score_ensembles( cell %>% select( k20.top3, xgb.top3), cell$truth ) # 0.5798224
+score_ensembles( cell %>% select( k20.top3, xgb.top3, xgb.top3), cell$truth ) # 0.5798224 suspicious
+score_ensembles( cell %>% select( xgb.top3, xgb.top3, xgb.top3), cell$truth ) # 0.5881356 validate
+score_ensembles( cell %>% select( k10.top3, k20.top3, k40.top3,
+                                  xgb.top3, xgb.top3, xgb.top3, xgb.top3), cell$truth ) # 0.5695722
+
+

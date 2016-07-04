@@ -438,12 +438,13 @@ tcheck(desc='vga start grid 50x50 knn RANN.L1 noprobs k=30')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
 # 0.53113145 0.05173669 [1] "234.760000 elapsed (laptop)
 
-# k_vals <- numeric();    tcheck(desc='start K sensitivity study')
-# knn_probs = FALSE
-# for (knn_k in seq(10,50,5)) {
-#     source('variable_grid_analysis1.R'); tcheck(desc=sprintf('knn k=%d complete', knn_k))
-#     k_vals <- c(k_vals, mean(chunk$score))
-# }
+k_vals <- numeric();    tcheck(desc='start K sensitivity study')
+knn_probs = FALSE
+for (knn_k in seq(10,50,5)) {
+    source('variable_grid_analysis1.R'); tcheck(desc=sprintf('knn k=%d complete', knn_k))
+    k_vals <- c(k_vals, mean(chunk$score))
+}
+plot( seq(10,50,5), k_vals, type="b")
 
 chunk_size = 25
 grid_nx = 100

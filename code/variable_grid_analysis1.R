@@ -45,6 +45,7 @@ if (! exists("grid_nx")) grid_nx = 50
 if (! exists("grid_ny")) grid_ny = 50
 if (! exists("min_occ")) min_occ = 10
 if (! exists("expand_margin")) expand_margin = 0.00 
+if (! exists("tbound_lower")) tbound_lower = 0   
 
 set.seed(48)
 h_scramble <- expand.grid( x=1:grid_nx, y=1:grid_ny) %>% sample_frac(size=1)
@@ -71,7 +72,8 @@ for (i in 1:nrow(grpx)) {
     xmin <- (chunk[ih+1, ]$x - 1) / gx_scale
     xmax <- xmin + 1./gx_scale
     xeps <- expand_margin * ( xmax - xmin )
-    trnx <- train %>% filter( x >= xmin - xeps, x <= xmax + xeps )
+    trnx <- train %>% filter( x >= xmin - xeps, x <= xmax + xeps,
+                              time >= as.integer(tbound_lower * max(train$time)) )
     tstx <- test %>% filter( x >= xmin, x <= xmax )
     
     ny <- grpx[i, ]$n
