@@ -47,6 +47,7 @@ if( ! exists("knn_probs")) knn_probs <- TRUE
 if( ! exists("knn_norm")) knn_norm = FALSE
 if( ! exists("knn_weights")) knn_weights = 1
 if( ! exists("knn_k")) knn_k = 25
+if( ! exists("knn_cte")) knn_cte = 5.6
 hp_classify_knn_RANN <- function(trn, val, min_occ=2, verbose=0, norm=knn_norm, w=knn_weights) {
     # uses RANN.L1::nn (manhattan distance)
     #w is a constant or vector of length ncol(trn2)-2 to multiply features by
@@ -71,11 +72,13 @@ hp_classify_knn_RANN <- function(trn, val, min_occ=2, verbose=0, norm=knn_norm, 
         trn2 <- apply( trn2 %>% select(-c(row_id, place_id)), 2 , identity)
         val2 <- apply( val2 %>% select(-c(row_id, place_id)), 2 , identity)
     }
+    k <- ifelse(knn_k > 0, knn_k, as.integer( sqrt(nrow(trn2)) / knn_cte ) )
+    if(knn_k <= 0) cat( sprintf('k=%d ',k))
     
     #RANN.L1  (manhattan distances)
     nn <- nn2( t(t( trn2 ) * w),  #train
                t(t( val2 ) * w),  #test
-               k = knn_k )
+               k = k )
     
     top3_places <- apply(nn$nn.idx, 1, top3_knn, trn2.place_id ) %>% t() %>% as.data.frame %>% tbl_df()
     
@@ -178,7 +181,7 @@ create_features_safe <- function(dt) {
     
     return(dt)
 }
-create_features <- create_features_safe
+if (! exists("create_features")) create_features <- create_features_safe
 
 top3_preds <- function (pred, place_ids) {
     predictions <- as.data.frame(matrix(pred, ncol=length(place_ids), byrow=TRUE ))

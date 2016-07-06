@@ -240,16 +240,17 @@ def prepare_data(datapath, val_start_day, train_columns, test_columns, th=5):
     return train, test, val_label
 
 def apply_weights(df, fw):
-    df['accuracy'] *= 0.046762824 # fw[0]
-    df['day_of_year_sin'] *= 0.043362221 # fw[1]
-    df['day_of_year_cos'] *= 0.043910566 #fw[1]
-    df['minute_sin'] *= 0.077711951 # fw[2]
-    df['minute_cos'] *= 0.070690576 # fw[2]
-    df['weekday_sin'] *= 0.024558173 # fw[3]
-    df['weekday_cos'] *= 0.008964929 # fw[3]
+    df_norm = (df - df.mean()) / (df.max() - df.min())
+    df_norm.accuracy *= 0.046762824 # fw[0]
+    df_norm.day_of_year_sin *= 0.043362221 # fw[1]
+    df_norm.day_of_year_cos *= 0.043910566 #fw[1]
+    df_norm.minute_sin *= 0.077711951 # fw[2]
+    df_norm.minute_cos *= 0.070690576 # fw[2]
+    df_norm.weekday_sin *= 0.024558173 # fw[3]
+    df_norm.weekday_cos *= 0.008964929 # fw[3]
     df.x *= 0.225823935 # fw[4]
     df.y *= 0.447210333 # fw[5]
-    df['year'] *= 0.011004490 # fw[6]
+    df_norm.year *= 0.011004490 # fw[6]
     return df
 
 def feature_engineering(df):

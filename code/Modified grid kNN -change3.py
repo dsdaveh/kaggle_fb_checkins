@@ -184,7 +184,7 @@ def process_grid(train, test, x_cuts, y_cuts, t_cuts,
 def generate_submission(preds):    
     print('Writing submission file')
     print('Pred shape:', preds.shape)
-    with open('KNN_submission_th8.csv', "w") as out:
+    with open('KNN_submission.csv', "w") as out:
         out.write("row_id,place_id\n")
         rows = ['']*preds.shape[0]
         for num in range(preds.shape[0]):
@@ -275,9 +275,8 @@ start_time = time.time()
 # Global variables
 datapath = '../input/'
 # Change val_start_day to zero to generate predictions
-val_start_day = 0 #455 # Day at which to cut validation
-print(val_start_day)
-th = 8 # Threshold at which to cut places from train
+val_start_day = 0 # Day at which to cut validation
+th = 5 # Threshold at which to cut places from train
 #fw = [0.6, 0.32535, 0.56515, 0.2670, 22, 52, 0.51985]
 #fw = [0.61,0.32435, 0.56525, 0.2670, 22, 52, 0.51885]
 #fw = [0.612,0.32335, 0.56535, 0.2670, 22, 52, 0.51785]

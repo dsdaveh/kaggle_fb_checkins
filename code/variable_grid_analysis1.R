@@ -46,6 +46,7 @@ if (! exists("grid_ny")) grid_ny = 50
 if (! exists("min_occ")) min_occ = 10
 if (! exists("expand_margin")) expand_margin = 0.00 
 if (! exists("tbound_lower")) tbound_lower = 0   
+if (! exists("skip_x")) skip_x = 0   
 
 set.seed(48)
 h_scramble <- expand.grid( x=1:grid_nx, y=1:grid_ny) %>% sample_frac(size=1)
@@ -81,6 +82,11 @@ for (i in 1:nrow(grpx)) {
     for(j in 1:ny){
         grid <- data.frame( grid_x = chunk[ih+1, ]$x,  grid_y = chunk[ih+1, ]$y)
         ih <- ih + 1
+        
+        if (i <= skip_x ) {
+            with(chunk[ih, ], { rect(x-1, y-1, x, y, col="yellow") } )
+            next
+        }
     
         tx <- proc.time()
         if(ih %% 5 == 0) cat('.') 

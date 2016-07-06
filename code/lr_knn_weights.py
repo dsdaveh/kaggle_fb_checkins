@@ -19,7 +19,6 @@ recent_train = pd.read_csv("../input/train.csv")
 recent_train = recent_train[(recent_train["x"]>=0.8) &(recent_train["x"]<=1.2) &(recent_train["y"]>=4.6) &(recent_train["y"]<=5.0)]
 
 #derive some features
-recent_train["x"],recent_train["y"] = recent_train["x"]*1000,recent_train["y"]*1000
 recent_train["hour"] = recent_train["time"]//60
 recent_train["hour_of_day"] = recent_train["hour"]%24 + 1
 

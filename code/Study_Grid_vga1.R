@@ -10,7 +10,6 @@ if (! exists("train")) {
     load("~/GitHub/kaggle/Facebook_Checkins/data/train_w_global.RData")
 }
 
-train.orig <- train
 setorder(train, time)
 train_cut_ix <- as.integer(nrow(train) * .80)
 test <- train[(train_cut_ix+1):nrow(train), ]
@@ -169,21 +168,171 @@ grid_nx = grid_ny = 100
 # run variable_grid_analysis1.R  lines 58:99
 # 0.5214679 0.1053201
 
-###################### try changing accuracy to log10
+######################  
+
+
+xgb_fea_g2 <- function(dt) {
+    
+    dt[, c( "hour", "weekday", "mday", "month", "year", 
+            "quarter_period_of_day", "rating_history"  ) := NULL]
+    
+    if (! "place_id" %in% names(dt)) dt$place_id <- "TBD"
+    
+    dt <- dt[, c(.SD, .(
+        min5_rad = 2 * (pi * floor(time/5) %% 288 ) / 288,
+        yday_rad  = 2 * (pi * floor(time/1440) %% 365) / 365,
+        wday_rad = 2 * (pi * floor(time/1440) %% 7) / 7,
+        year = floor( time/(24*60*365))  ))][ ,c(.SD, .(
+            min5_sin = sin( min5_rad ),
+            min5_cos = cos( min5_rad ),
+            yday_sin = sin( yday_rad ),
+            yday_cos = cos( yday_rad ),
+            wday_sin = sin( wday_rad ),
+            wday_cos = cos( wday_rad )   ))][ 
+                , c( "min5_rad", "yday_rad", "wday_rad") := NULL ]
+    dt[, accuracy := log10(accuracy)]
+    
+    return(dt)
+}
+
+train <- xgb_fea_g2(train)
+test <-  xgb_fea_g2(test)
 
 chunk_size = 10
 grid_nx = 50
 grid_ny = 50
+hp_classify <- hp_classify_xgb
 
-train[ , accuracy := log10(accuracy)]
-test[ , accuracy := log10(accuracy)]
-tcheck(desc='vga start grid 50x50 accuracy=log10')
+tcheck(desc='vga start grid 50x50 newg2')
 source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+est_time <- ( (diff(tcheck.df$elapsed) %>% tail(1)) * grid_nx * grid_ny / chunk_size ) / 3600.  # 26 hr
+# 0.53423168 0.05717505 [1] "392.740000 elapsed
+
+skip_xgb_weight_calc <- FALSE
+create_features <- create_features_safe
+fea_names <- names( create_features(train[1:10]) %>% select( -c(row_id, place_id)))
+
+if (! skip_xgb_weight_calc) {
+    #use the importances from xgb
+    hp_classify <- hp_classify_xgb_imp
+    xgb_importance <- list()
+    
+    tcheck(desc='vga start grid 50x50 xgb importance')
+    source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+    # 0.52251821 0.04142637
+    
+    impdf <- data.frame()
+    for (i in 1:length(xgb_importance)) impdf <- rbind(impdf, xgb_importance[[i]] %>% mutate(cell=i))
+    
+    imp_order <- impdf %>% group_by(Feature) %>% summarize(Gain = mean(Gain)) %>% arrange(Gain) %>% .[[1]]
+    impdf %>% 
+        ggplot(aes(Feature, Gain)) + 
+        geom_bar( data=impdf %>% mutate(Gain=Gain/length(xgb_importance)), stat="identity") +
+        geom_bar( stat="identity", position="dodge", aes(fill=as.factor(cell))) + 
+        scale_x_discrete(limits = imp_order) +
+        coord_flip() 
+    
+    avg_gain <- impdf %>% group_by(Feature) %>% summarize(Gain=mean(Gain))
+    # Feature        Gain
+    # (chr)       (dbl)
+#     1           y 0.439015591
+#     2           x 0.220155413
+#     3    min5_cos 0.066788562
+#     4    min5_sin 0.073974979
+#     5    accuracy 0.042271521
+#     6    yday_cos 0.039280065
+#     7    yday_sin 0.037667020
+#     8    wday_sin 0.022556942
+#     9   time_diff 0.013269391
+#     10 rat_hr_chg 0.010621939
+#     11   g_hr_chg 0.011340718
+#     12   wday_cos 0.008482786
+#     13       year 0.010149469
+#     14  n_this_hr 0.004425603
+    
+    sorted_weights <- avg_gain$Gain
+    names(sorted_weights) <- avg_gain$Feature
+    knn_weights_xgb <- rep(.0001, length(fea_names))
+    names(knn_weights_xgb) <- as.character(fea_names)
+    for (i in 1:length(fea_names))  knn_weights_xgb[i] <- round(sorted_weights[ fea_names[i] ] , 6)
+    
+} else {
+    knn_weights_xgb <- c(0.220155, 0.439016, 0.042272, 0.011341, 0.010149, 0.073975, 0.066789, 
+                         0.037667, 0.03928, 0.022557, 0.008483, 0.004426, 0.013269, 0.010622)
+    names(knn_weights_xgb) <- as.character(fea_names)
+}
+
+knn_weights <- knn_weights_xgb
+hp_classify <- hp_classify_knn_RANN
+knn_k = 30
+expand_margin = .005
+knn_norm = TRUE
+knn_probs = FALSE
+tcheck(desc='vga start grid 50x50 knn g2 xgb weights k30')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.53501859 0.04569957 [1] "139.610000 elapsed
 est_time <- ( (diff(tcheck.df$elapsed) %>% tail(1)) * grid_nx * grid_ny / chunk_size ) / 3600.  # 
-# 0.53940527 0.04489981
 
-#not much improvement (put things back the way they were)
-train[ , accuracy := 10^(accuracy)]
-test[ , accuracy := 10^(accuracy)]
+# knn_k = 20
+# tcheck(desc='vga start grid 50x50 knn g2 xgb weights k 20')
+# source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# # 0.53523070 0.04553918 [1] "132.020000 elapsed
+# 
+# knn_k = 0
+# tcheck(desc='vga start grid 50x50 knn g2 xgb weights cte=5.6')
+# source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# # 0.5329532 0.0458874 [1] "132.730000 elapsed
+# 
+# knn_cte = 3
+# tcheck(desc='vga start grid 50x50 knn g2 xgb weights cte=3')
+# source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# # 0.53444747 0.04597214 [1] "134.560000 elapsed
+# 
+# knn_cte = 2.5
+# tcheck(desc='vga start grid 50x50 knn g2 xgb weights cte=2.5')
+# source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# # 0.53310436 0.04718606 [1] "131.550000 elapsed
+# 
+# knn_cte = 3.5
+# tcheck(desc='vga start grid 50x50 knn g2 xgb weights cte=3.5')
+# source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 
 
+train <- train[ , c(.SD, .N), by=place_id ][ N > 5][ , N := NULL ]
+min_occ = 8
+tcheck(desc='vga start grid 50x50 knn g2 xgb weights th_opt')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+# 0.53563752 0.04511383
+est_time <- ( (diff(tcheck.df$elapsed) %>% tail(1)) * grid_nx * grid_ny / chunk_size ) / 3600.  # 17hr
+
+## full data
+#train <- fread('../input/train.csv', integer64='character') %>% global_features() tcheck(desc='build train w global features')
+load("~/GitHub/kaggle/Facebook_Checkins/data/train_w_global.RData")
+test <- fread('../input/test.csv', integer64='character') %>% global_features()
+train <- xgb_fea_g2(train)
+test <-  xgb_fea_g2(test)
+
+train <- train[ , c(.SD, .N), by=place_id ][ N > 5][ , N := NULL ]
+min_occ = 8
+
+chunk_size <- grid_ny * grid_nx
+tcheck(desc='vga start')
+source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
+
+## there could be duplicate row_id's so they need to be resolved
+## method below uses the row with the lowest X1 (probability) since  
+## in most cases place_id1 is identical and a lower X1 probability
+## results in a higher X2, X3 probability
+setkey(hp_results, row_id, X1)
+hp_results <- hp_results[, n := 1:.N , by=row_id][n==1][ ,n := NULL][, chunk := ichunk]
+result <- hp_results[,.(row_id, place_id=predictions)]
+
+blanks <- setdiff( test$row_id, hp_results$row_id) 
+result <- rbind(result, data.frame( row_id=blanks, place_id = ""))
+if (! exists("submit_name")) submit_name <- 
+    sprintf("../submissions/SG_vga1_50x50_KNN.csv", ichunk, format(Sys.time(), "%Y_%m_%d_%H%M%S"))
+cat('writing', submit_name, EOL)
+write.csv(result, file=submit_name, row.names=FALSE) #
+
+tcheck(desc='complete')
 
