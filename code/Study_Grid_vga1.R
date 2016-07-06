@@ -7,7 +7,7 @@ tcheck(0)
 ## load data  (allow for pre-loaded subsets)
 if (! exists("train")) {
     #train <- fread('../input/train.csv', integer64='character') %>% global_features() tcheck(desc='build train w global features')
-    load("~/GitHub/kaggle/Facebook_Checkins/data/train_w_global.RData")
+    load("../data/train_w_global.RData")
 }
 
 setorder(train, time)
@@ -208,7 +208,7 @@ source('variable_grid_analysis1.R'); tcheck(desc='vga complete')
 est_time <- ( (diff(tcheck.df$elapsed) %>% tail(1)) * grid_nx * grid_ny / chunk_size ) / 3600.  # 26 hr
 # 0.53423168 0.05717505 [1] "392.740000 elapsed
 
-skip_xgb_weight_calc <- FALSE
+skip_xgb_weight_calc <- TRUE
 create_features <- create_features_safe
 fea_names <- names( create_features(train[1:10]) %>% select( -c(row_id, place_id)))
 
@@ -307,7 +307,7 @@ est_time <- ( (diff(tcheck.df$elapsed) %>% tail(1)) * grid_nx * grid_ny / chunk_
 
 ## full data
 #train <- fread('../input/train.csv', integer64='character') %>% global_features() tcheck(desc='build train w global features')
-load("~/GitHub/kaggle/Facebook_Checkins/data/train_w_global.RData")
+load("../data/train_w_global.RData")
 test <- fread('../input/test.csv', integer64='character') %>% global_features()
 train <- xgb_fea_g2(train)
 test <-  xgb_fea_g2(test)
